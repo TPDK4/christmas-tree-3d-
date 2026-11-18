@@ -52,7 +52,7 @@ TargetPosition：构成树木圆锥形状的目标坐标。 在 useFrame 中根�
 ### Photo Upload & Sharing
 
 1. **Upload Photos:**
-   - Click "上传照片" button to select up to 22 images
+   - Click "上传照片" button to select up to 5 images
    - Photos will appear as polaroids on the Christmas tree
 
 2. **Generate Share Link:**

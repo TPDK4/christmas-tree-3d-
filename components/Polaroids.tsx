@@ -22,7 +22,7 @@ import { TreeMode } from '../types';
  * ==================================================================================
  */
 
-const PHOTO_COUNT = 22; // How many polaroid frames to generate
+const PHOTO_COUNT = 5; // Maximum number of polaroid frames
 
 interface PolaroidsProps {
   mode: TreeMode;

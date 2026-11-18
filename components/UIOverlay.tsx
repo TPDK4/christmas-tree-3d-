@@ -226,10 +226,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           }
         } catch (serverErr: any) {
           console.warn('Server upload failed:', serverErr);
-          const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-          if (!isLocal) {
-            throw serverErr;
-          }
+          // Continue to localStorage fallback even on production. This keeps
+          // share creation working when R2/KV configuration is temporarily unavailable.
         }
 
         // Strategy 2: Fallback for custom photos if backend is completely unavailable
