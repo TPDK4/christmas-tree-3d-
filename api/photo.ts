@@ -1,17 +1,34 @@
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getS3Client, BUCKET_NAME, getCleanAccountId } from './r2';
 
-// Cloudflare R2 configuration
-const s3Client = new S3Client({
-  region: 'auto',
-  endpoint: `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '',
-  },
-  forcePathStyle: true,
-});
+const KV_NAMESPACE_ID = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
+const KV_API_TOKEN = (process.env.CLOUDFLARE_KV_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
 
-const BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET || 'christmas-tree-photos';
+// Helper to check Cloudflare KV fallback
+async function getPhotoFromKV(shareId: string, index: number, cleanAccountId: string): Promise<Buffer | null> {
+  if (!KV_NAMESPACE_ID || !KV_API_TOKEN || !cleanAccountId) return null;
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${cleanAccountId}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/${shareId}`,
+      {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${KV_API_TOKEN}` },
+      }
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data?.images && data.images[index]) {
+      const imgData = data.images[index];
+      if (imgData.startsWith('data:image/')) {
+        const base64Data = imgData.replace(/^data:image\/\w+;base64,/, '');
+        return Buffer.from(base64Data, 'base64');
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
 
 export default async function handler(req: any, res: any) {
   // Enable CORS
@@ -62,33 +79,53 @@ export default async function handler(req: any, res: any) {
   }
   key = key.replace(/^\/+/, '');
 
+  // 1. Try fetching from Cloudflare R2
   try {
+    const s3Client = getS3Client();
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
       Key: key,
     });
 
     const response = await s3Client.send(command);
-    if (!response.Body) {
-      return res.status(404).json({ error: 'Photo not found' });
+    if (response.Body) {
+      const byteArray = await response.Body.transformToByteArray();
+      const buffer = Buffer.from(byteArray);
+
+      res.writeHead(200, {
+        'Content-Type': response.ContentType || 'image/jpeg',
+        'Content-Length': buffer.length,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      });
+      return res.end(buffer);
     }
-
-    const byteArray = await response.Body.transformToByteArray();
-    const buffer = Buffer.from(byteArray);
-
-    res.writeHead(200, {
-      'Content-Type': response.ContentType || 'image/jpeg',
-      'Content-Length': buffer.length,
-      'Cache-Control': 'public, max-age=31536000, immutable',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    });
-    return res.end(buffer);
-  } catch (error: any) {
-    console.error(`Photo retrieval error for key "${key}":`, error?.message);
-    return res.status(404).json({ 
-      error: 'Photo not found', 
-      message: error.message 
-    });
+  } catch (r2Error: any) {
+    console.warn(`R2 photo fetch failed for key "${key}":`, r2Error?.message);
   }
+
+  // 2. Fallback: Try fetching from Cloudflare KV
+  const keyParts = key.match(/^([a-zA-Z0-9_-]+)\/(\d+)\.jpg$/);
+  if (keyParts) {
+    const shareId = keyParts[1];
+    const photoIdx = parseInt(keyParts[2], 10);
+    const cleanAccountId = getCleanAccountId();
+    const kvBuffer = await getPhotoFromKV(shareId, photoIdx, cleanAccountId);
+    if (kvBuffer) {
+      res.writeHead(200, {
+        'Content-Type': 'image/jpeg',
+        'Content-Length': kvBuffer.length,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      });
+      return res.end(kvBuffer);
+    }
+  }
+
+  return res.status(404).json({ 
+    error: 'Photo not found', 
+    key 
+  });
 }

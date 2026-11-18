@@ -1,22 +1,10 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { nanoid } from 'nanoid';
+import { getS3Client, BUCKET_NAME, getCleanAccountId } from './r2';
 
-// Cloudflare R2 configuration
-const s3Client = new S3Client({
-  region: 'auto',
-  endpoint: `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '',
-  },
-  forcePathStyle: true,
-});
-
-const BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET || 'christmas-tree-photos';
-const KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID || '';
-const KV_API_TOKEN = process.env.CLOUDFLARE_KV_API_TOKEN || '';
-const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
-const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || '').trim();
+const KV_NAMESPACE_ID = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
+const KV_API_TOKEN = (process.env.CLOUDFLARE_KV_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || '').trim().replace(/^["']|["']$/g, '');
 
 // Helper function to convert base64 data to Buffer
 async function parseBase64Image(base64Data: string): Promise<Buffer> {
@@ -24,8 +12,8 @@ async function parseBase64Image(base64Data: string): Promise<Buffer> {
   return Buffer.from(base64Image, 'base64');
 }
 
-// Optional helper function to store data in Cloudflare KV as backup
-async function storeInKV(shareId: string, imageUrls: string[], music?: any, mask?: string): Promise<void> {
+// Helper function to store data in Cloudflare KV
+async function storeInKV(shareId: string, imageUrls: string[], cleanAccountId: string, music?: any, mask?: string): Promise<void> {
   const data = {
     images: imageUrls,
     music: music || null,
@@ -34,7 +22,7 @@ async function storeInKV(shareId: string, imageUrls: string[], music?: any, mask
   };
 
   const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/${shareId}?expiration_ttl=2592000`,
+    `https://api.cloudflare.com/client/v4/accounts/${cleanAccountId}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/${shareId}?expiration_ttl=2592000`,
     {
       method: 'PUT',
       headers: {
@@ -80,8 +68,6 @@ export default async function handler(req: any, res: any) {
 
     // Generate unique share ID
     const shareId = nanoid(8);
-    const imageUrls: string[] = [];
-
     const host = req.headers['x-forwarded-host'] || req.headers.host;
     const proto = req.headers['x-forwarded-proto'] || 'https';
     const origin = req.headers.origin || (host ? `${proto}://${host}` : '');
@@ -91,53 +77,76 @@ export default async function handler(req: any, res: any) {
       publicBase = `https://${publicBase}`;
     }
 
-    // 1. Upload all photos to R2
-    for (let i = 0; i < images.length; i++) {
-      const imageData = images[i];
-      const imageBuffer = await parseBase64Image(imageData);
+    const cleanAccountId = getCleanAccountId();
+    let r2Success = false;
+    const imageUrls: string[] = [];
 
-      // Unique filename for this photo
-      const filename = `${shareId}/${i}.jpg`;
+    // Attempt 1: Upload to Cloudflare R2
+    try {
+      const s3Client = getS3Client();
 
-      const command = new PutObjectCommand({
+      for (let i = 0; i < images.length; i++) {
+        const imageData = images[i];
+        const imageBuffer = await parseBase64Image(imageData);
+        const filename = `${shareId}/${i}.jpg`;
+
+        const command = new PutObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: filename,
+          Body: imageBuffer,
+          ContentType: 'image/jpeg',
+        });
+
+        await s3Client.send(command);
+
+        const imageUrl = publicBase
+          ? `${publicBase}/${filename}`
+          : `${origin}/api/photo?key=${filename}`;
+
+        imageUrls.push(imageUrl);
+      }
+
+      // Store metadata JSON in R2
+      const shareMetadata = {
+        images: imageUrls,
+        music: music || null,
+        mask: mask || 'none',
+        createdAt: Date.now(),
+      };
+
+      const metaCommand = new PutObjectCommand({
         Bucket: BUCKET_NAME,
-        Key: filename,
-        Body: imageBuffer,
-        ContentType: 'image/jpeg',
+        Key: `${shareId}/meta.json`,
+        Body: Buffer.from(JSON.stringify(shareMetadata)),
+        ContentType: 'application/json',
       });
 
-      await s3Client.send(command);
+      await s3Client.send(metaCommand);
+      r2Success = true;
 
-      const imageUrl = publicBase
-        ? `${publicBase}/${filename}`
-        : `${origin}/api/photo?key=${filename}`;
+      // Optional KV backup
+      if (KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId) {
+        try {
+          await storeInKV(shareId, imageUrls, cleanAccountId, music, mask);
+        } catch (kvErr) {
+          console.warn('Optional KV backup failed:', kvErr);
+        }
+      }
+    } catch (r2Error: any) {
+      console.warn('R2 storage attempt failed:', r2Error?.message || r2Error);
 
-      imageUrls.push(imageUrl);
-    }
-
-    // 2. Store metadata JSON directly in R2 (Primary storage - zero extra dependencies)
-    const shareMetadata = {
-      images: imageUrls,
-      music: music || null,
-      mask: mask || 'none',
-      createdAt: Date.now(),
-    };
-
-    const metaCommand = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: `${shareId}/meta.json`,
-      Body: Buffer.from(JSON.stringify(shareMetadata)),
-      ContentType: 'application/json',
-    });
-
-    await s3Client.send(metaCommand);
-
-    // 3. Optional: Store in KV as backup if KV environment variables are present
-    if (KV_NAMESPACE_ID && KV_API_TOKEN && CLOUDFLARE_ACCOUNT_ID) {
-      try {
-        await storeInKV(shareId, imageUrls, music, mask);
-      } catch (kvErr) {
-        console.warn('Optional KV storage failed:', kvErr);
+      // Attempt 2: Fallback directly to Cloudflare KV if configured
+      if (KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId) {
+        try {
+          console.info('Attempting fallback to Cloudflare KV...');
+          await storeInKV(shareId, images, cleanAccountId, music, mask);
+          r2Success = true;
+        } catch (kvError: any) {
+          console.error('KV fallback also failed:', kvError);
+          throw r2Error; // Rethrow primary error
+        }
+      } else {
+        throw r2Error;
       }
     }
 
@@ -150,13 +159,24 @@ export default async function handler(req: any, res: any) {
       success: true,
       shareId,
       shareLink,
-      imageCount: imageUrls.length,
+      imageCount: images.length,
     });
   } catch (error: any) {
     console.error('Upload error:', error);
+
+    let friendlyMessage = error?.message || 'Có lỗi xảy ra khi tải ảnh lên.';
+    if (
+      friendlyMessage.includes('EPROTO') ||
+      friendlyMessage.includes('alert number 40') ||
+      friendlyMessage.includes('handshake failure') ||
+      friendlyMessage.includes('ERR_SSL')
+    ) {
+      friendlyMessage = 'Lỗi SSL Handshake Cloudflare R2 (Alert 40): Vui lòng kiểm tra biến CLOUDFLARE_ACCOUNT_ID trên Vercel. Bạn chỉ cần điền mã Account ID (32 ký tự hex, ví dụ: 7a8b9c...), không điền cả đường dẫn https:// hay .r2.cloudflarestorage.com.';
+    }
+
     return res.status(500).json({ 
       error: 'Failed to upload images', 
-      message: error.message 
+      message: friendlyMessage 
     });
   }
 }

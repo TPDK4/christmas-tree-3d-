@@ -1,26 +1,15 @@
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getS3Client, BUCKET_NAME, getCleanAccountId } from './r2';
 
-// Cloudflare R2 configuration
-const s3Client = new S3Client({
-  region: 'auto',
-  endpoint: `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '',
-  },
-  forcePathStyle: true,
-});
-
-const BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET || 'christmas-tree-photos';
-const KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID || '';
-const KV_API_TOKEN = process.env.CLOUDFLARE_KV_API_TOKEN || '';
-const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
+const KV_NAMESPACE_ID = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
+const KV_API_TOKEN = (process.env.CLOUDFLARE_KV_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
 
 // Helper function to retrieve data from Cloudflare KV as fallback
-async function getFromKV(shareId: string): Promise<{ images: string[]; music?: any; mask?: string; createdAt: number } | null> {
+async function getFromKV(shareId: string, cleanAccountId: string): Promise<{ images: string[]; music?: any; mask?: string; createdAt: number } | null> {
+  if (!KV_NAMESPACE_ID || !KV_API_TOKEN || !cleanAccountId) return null;
   try {
     const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/${shareId}`,
+      `https://api.cloudflare.com/client/v4/accounts/${cleanAccountId}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/${shareId}`,
       {
         method: 'GET',
         headers: {
@@ -66,8 +55,11 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Share ID is required' });
     }
 
+    const cleanAccountId = getCleanAccountId();
+
     // 1. Primary check: Retrieve metadata JSON directly from R2
     try {
+      const s3Client = getS3Client();
       const command = new GetObjectCommand({
         Bucket: BUCKET_NAME,
         Key: `${id}/meta.json`,
@@ -92,8 +84,8 @@ export default async function handler(req: any, res: any) {
     }
 
     // 2. Secondary check: Cloudflare KV fallback
-    if (KV_NAMESPACE_ID && KV_API_TOKEN && CLOUDFLARE_ACCOUNT_ID) {
-      const kvData = await getFromKV(id);
+    if (KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId) {
+      const kvData = await getFromKV(id, cleanAccountId);
       if (kvData) {
         return res.status(200).json({
           success: true,
