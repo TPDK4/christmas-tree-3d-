@@ -12,7 +12,7 @@ export function getCleanAccountId(): string {
 }
 
 export const BUCKET_NAME = (process.env.CLOUDFLARE_R2_BUCKET || 'christmas-tree-photos')
-  .trim().replace(/^["']|["']$/g, '');
+  .trim().replace(/^["']|["']$/g, '').replace(/^\/+|\/+$/g, '');
 
 export function getR2BaseUrl(): string {
   const customEndpoint = (process.env.CLOUDFLARE_R2_ENDPOINT || process.env.R2_ENDPOINT || '').trim().replace(/^["']|["']$/g, '');

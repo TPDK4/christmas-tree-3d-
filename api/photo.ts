@@ -42,8 +42,12 @@ export default async function handler(req: any, res: any) {
         'Content-Length': buffer.length,
         'Cache-Control': 'public, max-age=31536000, immutable',
         'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
       });
       return res.end(buffer);
+    } else {
+      console.warn(`R2 photo fetch returned HTTP ${r2Resp.status} for key "${key}"`);
     }
   } catch (r2Err: any) {
     console.warn(`R2 photo fetch failed for key "${key}":`, r2Err?.message);

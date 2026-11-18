@@ -8,12 +8,9 @@ function generateShareId(): string {
   return Math.random().toString(36).substring(2, 10);
 }
 
-function parseBase64Image(base64Data: string): Uint8Array {
+function parseBase64Image(base64Data: string): Buffer {
   const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
+  return Buffer.from(base64, 'base64');
 }
 
 async function storeInKV(shareId: string, payload: object, cleanAccountId: string): Promise<void> {
@@ -82,7 +79,7 @@ export default async function handler(req: any, res: any) {
 
         return publicBase
           ? `${publicBase}/${filename}`
-          : `${origin}/api/photo?key=${encodeURIComponent(filename)}`;
+          : `/api/photo?key=${encodeURIComponent(filename)}`;
       })
     );
 

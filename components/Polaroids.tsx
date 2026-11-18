@@ -48,15 +48,22 @@ const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; i
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   const [error, setError] = useState(false);
 
-  // Safe texture loading with dual-strategy fallback (Direct TextureLoader + Fetch Blob)
+  // Safe texture loading with dual-strategy fallback (Direct Image + Fetch Blob -> Three.Texture)
   useEffect(() => {
     let isCancelled = false;
     let objectUrlToRevoke: string | null = null;
 
     const loadTexture = async () => {
-      // 1. Normalize URL: if from r2.dev or r2.cloudflarestorage.com (which lacks CORS on mobile Safari), route through same-origin /api/photo proxy
       let targetUrl = data.url;
-      if (targetUrl && (targetUrl.includes('.r2.dev') || targetUrl.includes('.r2.cloudflarestorage.com'))) {
+      if (!targetUrl) return;
+
+      // 1. Normalize URL: always route /api/photo through the current domain (fixes cross-domain preview issues)
+      if (targetUrl.includes('/api/photo')) {
+        const match = targetUrl.match(/key=([^&]+)/);
+        if (match) {
+          targetUrl = `/api/photo?key=${match[1]}`;
+        }
+      } else if (targetUrl.includes('.r2.dev') || targetUrl.includes('.r2.cloudflarestorage.com')) {
         try {
           const parsed = new URL(targetUrl);
           const pathKey = parsed.pathname.replace(/^\/+/, '');
@@ -64,54 +71,55 @@ const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; i
         } catch (e) {}
       }
 
-      const loader = new THREE.TextureLoader();
-      if (!targetUrl.startsWith('data:') && !targetUrl.startsWith('blob:')) {
-        loader.setCrossOrigin('anonymous');
+      // Helper to wrap an HTMLImageElement into Three.js Texture safely
+      const applyImageToTexture = (img: HTMLImageElement) => {
+        if (isCancelled) return;
+        const tex = new THREE.Texture(img);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.needsUpdate = true;
+        setTexture(tex);
+        setError(false);
+      };
+
+      // Case A: data: URI (base64) - instantly loaded via Image with zero network/CORS issues
+      if (targetUrl.startsWith('data:')) {
+        const img = new Image();
+        img.onload = () => applyImageToTexture(img);
+        img.onerror = () => {
+          if (!isCancelled) setError(true);
+        };
+        img.src = targetUrl;
+        return;
       }
 
-      loader.load(
-        targetUrl,
-        (loadedTex) => {
-          if (isCancelled) return;
-          loadedTex.colorSpace = THREE.SRGBColorSpace;
-          loadedTex.needsUpdate = true;
-          setTexture(loadedTex);
-          setError(false);
-        },
-        undefined, // onProgress
-        async (err) => {
-          console.warn(`TextureLoader failed for ${targetUrl}, trying fetch blob fallback:`, err);
-          // 2. Fallback: Fetch raw binary blob and create a local blob: URL (bypasses all WebGL image CORS/iOS WebKit bugs)
-          try {
-            const resp = await fetch(targetUrl);
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const blob = await resp.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            objectUrlToRevoke = blobUrl;
+      // Case B: Network image (e.g. /api/photo?key=...)
+      // Fetch binary blob first, then create local blob: URL -> 100% works in iOS Safari & Messenger WKWebView
+      try {
+        const resp = await fetch(targetUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        objectUrlToRevoke = blobUrl;
 
-            loader.load(
-              blobUrl,
-              (blobTex) => {
-                if (isCancelled) return;
-                blobTex.colorSpace = THREE.SRGBColorSpace;
-                blobTex.needsUpdate = true;
-                setTexture(blobTex);
-                setError(false);
-              },
-              undefined,
-              (blobErr) => {
-                if (isCancelled) return;
-                console.error(`Blob texture loading failed:`, blobErr);
-                setError(true);
-              }
-            );
-          } catch (fetchErr) {
-            if (isCancelled) return;
-            console.error(`Fetch blob fallback failed:`, fetchErr);
-            setError(true);
-          }
-        }
-      );
+        const img = new Image();
+        // CRITICAL: NEVER set crossOrigin on blob: URL!
+        img.onload = () => applyImageToTexture(img);
+        img.onerror = (imgErr) => {
+          console.warn('Blob Image load error:', imgErr);
+          if (!isCancelled) setError(true);
+        };
+        img.src = blobUrl;
+      } catch (fetchErr) {
+        console.warn(`Fetch blob failed for ${targetUrl}, trying direct image load:`, fetchErr);
+        // Fallback: Direct image load with anonymous CORS
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => applyImageToTexture(img);
+        img.onerror = () => {
+          if (!isCancelled) setError(true);
+        };
+        img.src = targetUrl;
+      }
     };
 
     loadTexture();

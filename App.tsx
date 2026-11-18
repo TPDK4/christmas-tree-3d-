@@ -110,7 +110,15 @@ function AppContent() {
 
             if (response.ok && data.success) {
               if (data.images && data.images.length > 0) {
-                setUploadedPhotos(data.images);
+                // Normalize all images to relative /api/photo to eliminate any cross-domain preview link mismatch
+                const normalizedImages = data.images.map((imgUrl: string) => {
+                  if (typeof imgUrl === 'string' && imgUrl.includes('/api/photo')) {
+                    const match = imgUrl.match(/key=([^&]+)/);
+                    if (match) return `/api/photo?key=${match[1]}`;
+                  }
+                  return imgUrl;
+                });
+                setUploadedPhotos(normalizedImages);
               }
               if (data.mask && !paramMask) {
                 setCurrentMask(data.mask as MaskType);
