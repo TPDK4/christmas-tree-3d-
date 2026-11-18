@@ -164,10 +164,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             return;
           } else {
             const errBody = await serverUploadResponse.json().catch(() => ({}));
-            console.warn('Server upload returned error:', errBody);
+            throw new Error(errBody.message || errBody.error || 'Tải ảnh lên máy chủ thất bại');
           }
-        } catch (serverErr) {
-          console.warn('Server upload failed, falling back to local share:', serverErr);
+        } catch (serverErr: any) {
+          console.warn('Server upload failed:', serverErr);
+          const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+          if (!isLocal) {
+            throw serverErr;
+          }
         }
 
         // Strategy 2: Fallback for custom photos if backend is completely unavailable

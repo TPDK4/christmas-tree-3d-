@@ -51,6 +51,7 @@ const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; i
   // Safe texture loading that won't crash the app if a file is missing
   useEffect(() => {
     const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin('anonymous');
     loader.load(
       data.url,
       (loadedTex) => {

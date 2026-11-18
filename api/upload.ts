@@ -24,7 +24,7 @@ async function parseBase64Image(base64Data: string): Promise<Buffer> {
   return Buffer.from(base64Image, 'base64');
 }
 
-// Helper function to store data in Cloudflare KV
+// Optional helper function to store data in Cloudflare KV as backup
 async function storeInKV(shareId: string, imageUrls: string[], music?: any, mask?: string): Promise<void> {
   const data = {
     images: imageUrls,
@@ -91,15 +91,14 @@ export default async function handler(req: any, res: any) {
       publicBase = `https://${publicBase}`;
     }
 
-    // Upload all images to R2
+    // 1. Upload all photos to R2
     for (let i = 0; i < images.length; i++) {
       const imageData = images[i];
       const imageBuffer = await parseBase64Image(imageData);
 
-      // Unique filename
+      // Unique filename for this photo
       const filename = `${shareId}/${i}.jpg`;
 
-      // Upload to R2 server-to-server (No browser CORS or SSL issues)
       const command = new PutObjectCommand({
         Bucket: BUCKET_NAME,
         Key: filename,
@@ -116,8 +115,31 @@ export default async function handler(req: any, res: any) {
       imageUrls.push(imageUrl);
     }
 
-    // Store share data in KV with 30-day expiration
-    await storeInKV(shareId, imageUrls, music, mask);
+    // 2. Store metadata JSON directly in R2 (Primary storage - zero extra dependencies)
+    const shareMetadata = {
+      images: imageUrls,
+      music: music || null,
+      mask: mask || 'none',
+      createdAt: Date.now(),
+    };
+
+    const metaCommand = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: `${shareId}/meta.json`,
+      Body: Buffer.from(JSON.stringify(shareMetadata)),
+      ContentType: 'application/json',
+    });
+
+    await s3Client.send(metaCommand);
+
+    // 3. Optional: Store in KV as backup if KV environment variables are present
+    if (KV_NAMESPACE_ID && KV_API_TOKEN && CLOUDFLARE_ACCOUNT_ID) {
+      try {
+        await storeInKV(shareId, imageUrls, music, mask);
+      } catch (kvErr) {
+        console.warn('Optional KV storage failed:', kvErr);
+      }
+    }
 
     // Return share link
     let shareLink = `${origin}/?share=${shareId}`;

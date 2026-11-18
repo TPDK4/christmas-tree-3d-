@@ -44,17 +44,14 @@ export default async function handler(req: any, res: any) {
       return res.status(404).json({ error: 'Photo not found' });
     }
 
+    const byteArray = await response.Body.transformToByteArray();
+    const buffer = Buffer.from(byteArray);
+
     res.setHeader('Content-Type', response.ContentType || 'image/jpeg');
+    res.setHeader('Content-Length', buffer.length);
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
 
-    // Stream or buffer response
-    const stream = response.Body as any;
-    if (typeof stream.pipe === 'function') {
-      return stream.pipe(res);
-    } else {
-      const byteArray = await response.Body.transformToByteArray();
-      return res.status(200).send(Buffer.from(byteArray));
-    }
+    return res.status(200).send(buffer);
   } catch (error: any) {
     console.error('Photo retrieval error:', error);
     return res.status(404).json({ 

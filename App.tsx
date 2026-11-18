@@ -8,7 +8,7 @@ import { GestureController } from './components/GestureController';
 import { InstructionGuide } from './components/InstructionGuide';
 import { TreeMode, ActiveTrack, MaskType } from './types';
 import { parseMusicUrl } from './components/MusicPlayer';
-import { getPhotoByIndex } from './utils/defaultPhotos';
+import { getPhotoByIndex, DEFAULT_CHRISTMAS_PHOTOS } from './utils/defaultPhotos';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 
 // Simple Error Boundary to catch 3D resource loading errors (like textures)
@@ -91,6 +91,11 @@ function AppContent() {
         if (parsed) {
           setCurrentMusic(parsed);
         }
+      }
+
+      // 2b. Default festive Christmas tree (no custom photos uploaded)
+      if (isCustomTree) {
+        setUploadedPhotos(DEFAULT_CHRISTMAS_PHOTOS.map(p => p.url));
       }
 
       // 3. Share ID via Cloudflare KV API or localStorage fallback
