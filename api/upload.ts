@@ -9,25 +9,27 @@ const s3Client = new S3Client({
     accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '',
     secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '',
   },
+  forcePathStyle: true,
 });
 
-const BUCKET_NAME = 'christmas-tree-photos';
+const BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET || 'christmas-tree-photos';
 const KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID || '';
 const KV_API_TOKEN = process.env.CLOUDFLARE_KV_API_TOKEN || '';
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
-const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || ''; // R2 bucket public URL
+const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || '').trim();
 
-// Helper function to compress and convert image to JPEG
-async function compressImage(base64Data: string): Promise<Buffer> {
-  // Remove data URL prefix
+// Helper function to convert base64 data to Buffer
+async function parseBase64Image(base64Data: string): Promise<Buffer> {
   const base64Image = base64Data.replace(/^data:image\/\w+;base64,/, '');
   return Buffer.from(base64Image, 'base64');
 }
 
 // Helper function to store data in Cloudflare KV
-async function storeInKV(shareId: string, imageUrls: string[]): Promise<void> {
+async function storeInKV(shareId: string, imageUrls: string[], music?: any, mask?: string): Promise<void> {
   const data = {
     images: imageUrls,
+    music: music || null,
+    mask: mask || 'none',
     createdAt: Date.now(),
   };
 
@@ -44,7 +46,8 @@ async function storeInKV(shareId: string, imageUrls: string[]): Promise<void> {
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to store in KV: ${response.statusText}`);
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Failed to store in KV: ${response.statusText} ${errorText}`);
   }
 }
 
@@ -65,7 +68,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { images } = req.body;
+    const { images, music, mask } = req.body;
 
     if (!images || !Array.isArray(images) || images.length === 0) {
       return res.status(400).json({ error: 'No images provided' });
@@ -79,15 +82,24 @@ export default async function handler(req: any, res: any) {
     const shareId = nanoid(8);
     const imageUrls: string[] = [];
 
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const origin = req.headers.origin || (host ? `${proto}://${host}` : '');
+
+    let publicBase = R2_PUBLIC_URL.replace(/\/+$/, '');
+    if (publicBase && !publicBase.startsWith('http://') && !publicBase.startsWith('https://')) {
+      publicBase = `https://${publicBase}`;
+    }
+
     // Upload all images to R2
     for (let i = 0; i < images.length; i++) {
       const imageData = images[i];
-      const imageBuffer = await compressImage(imageData);
+      const imageBuffer = await parseBase64Image(imageData);
 
-      // Generate unique filename
+      // Unique filename
       const filename = `${shareId}/${i}.jpg`;
 
-      // Upload to R2
+      // Upload to R2 server-to-server (No browser CORS or SSL issues)
       const command = new PutObjectCommand({
         Bucket: BUCKET_NAME,
         Key: filename,
@@ -97,17 +109,20 @@ export default async function handler(req: any, res: any) {
 
       await s3Client.send(command);
 
-      // Construct public URL
-      // R2 public URL already points to the bucket root
-      const imageUrl = `${R2_PUBLIC_URL}/${filename}`;
+      const imageUrl = publicBase
+        ? `${publicBase}/${filename}`
+        : `${origin}/api/photo?key=${encodeURIComponent(filename)}`;
+
       imageUrls.push(imageUrl);
     }
 
     // Store share data in KV with 30-day expiration
-    await storeInKV(shareId, imageUrls);
+    await storeInKV(shareId, imageUrls, music, mask);
 
     // Return share link
-    const shareLink = `${req.headers.origin || 'https://your-app.vercel.app'}/?share=${shareId}`;
+    let shareLink = `${origin}/?share=${shareId}`;
+    if (mask && mask !== 'none') shareLink += `&mask=${encodeURIComponent(mask)}`;
+    if (music && music.url) shareLink += `&music=${encodeURIComponent(music.url)}`;
 
     return res.status(200).json({
       success: true,
@@ -123,4 +138,3 @@ export default async function handler(req: any, res: any) {
     });
   }
 }
-

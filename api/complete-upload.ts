@@ -24,7 +24,8 @@ async function storeInKV(shareId: string, imageUrls: string[], music?: any, mask
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to store in KV: ${response.statusText}`);
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Failed to store in KV: ${response.statusText} ${errorText}`);
   }
 }
 
@@ -55,8 +56,14 @@ export default async function handler(req: any, res: any) {
     await storeInKV(shareId, imageUrls, music, mask);
 
     // Return share link
-    const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || '';
-    const shareLink = `${origin}/?share=${shareId}`;
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const fallbackOrigin = host ? `${proto}://${host}` : '';
+    const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || fallbackOrigin;
+
+    let shareLink = `${origin}/?share=${shareId}`;
+    if (mask && mask !== 'none') shareLink += `&mask=${encodeURIComponent(mask)}`;
+    if (music && music.url) shareLink += `&music=${encodeURIComponent(music.url)}`;
 
     return res.status(200).json({
       success: true,
@@ -72,4 +79,3 @@ export default async function handler(req: any, res: any) {
     });
   }
 }
-
