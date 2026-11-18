@@ -18,9 +18,10 @@ interface ExperienceProps {
   twoHandsDetected: boolean;
   selectedPhotoIndex?: number | null;
   onClosestPhotoChange?: (photoUrl: string | null) => void;
+  onPhotoClick?: (index: number) => void;
 }
 
-export const Experience: React.FC<ExperienceProps> = ({ mode, handPosition, uploadedPhotos, twoHandsDetected, selectedPhotoIndex, onClosestPhotoChange }) => {
+export const Experience: React.FC<ExperienceProps> = ({ mode, handPosition, uploadedPhotos, twoHandsDetected, selectedPhotoIndex, onClosestPhotoChange, onPhotoClick }) => {
   const controlsRef = useRef<any>(null);
   const treeGroupRef = useRef<THREE.Group>(null);
 
@@ -166,7 +167,7 @@ export const Experience: React.FC<ExperienceProps> = ({ mode, handPosition, uplo
         <group ref={treeGroupRef}>
           <Foliage mode={mode} count={12000} />
           <Ornaments mode={mode} count={600} />
-          <Polaroids mode={mode} uploadedPhotos={uploadedPhotos} selectedPhotoIndex={selectedPhotoIndex} twoHandsDetected={twoHandsDetected} onClosestPhotoChange={onClosestPhotoChange} />
+          <Polaroids mode={mode} uploadedPhotos={uploadedPhotos} selectedPhotoIndex={selectedPhotoIndex} twoHandsDetected={twoHandsDetected} onClosestPhotoChange={onClosestPhotoChange} onPhotoClick={onPhotoClick} />
           <TreeStar mode={mode} />
         </group>
         

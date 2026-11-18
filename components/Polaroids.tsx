@@ -30,6 +30,7 @@ interface PolaroidsProps {
   selectedPhotoIndex?: number | null;
   twoHandsDetected?: boolean;
   onClosestPhotoChange?: (photoUrl: string | null) => void;
+  onPhotoClick?: (index: number) => void;
 }
 
 interface PhotoData {
@@ -40,7 +41,7 @@ interface PhotoData {
   speed: number;
 }
 
-const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; isSelected?: boolean }> = ({ data, mode, index, isSelected = false }) => {
+const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; isSelected?: boolean; onPhotoClick?: (index: number) => void }> = ({ data, mode, index, isSelected = false, onPhotoClick }) => {
   const groupRef = useRef<THREE.Group>(null);
   const branchGroupRef = useRef<THREE.Group>(null);
   const framePivotRef = useRef<THREE.Group>(null);
@@ -244,7 +245,20 @@ const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; i
       </group>
 
       {/* Frame Group with Top-Clip Pivot - tilts diagonally & leans forward naturally */}
-      <group ref={framePivotRef} position={[0, 0.75, 0]}>
+      <group 
+        ref={framePivotRef} 
+        position={[0, 0.75, 0]}
+        onClick={(e) => {
+          e.stopPropagation();
+          onPhotoClick?.(index + 1);
+        }}
+        onPointerOver={() => {
+          document.body.style.cursor = 'pointer';
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = 'auto';
+        }}
+      >
         
         {/* White Paper Backing */}
         <mesh position={[0, -0.75, 0]}>
@@ -295,7 +309,7 @@ const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; i
   );
 };
 
-export const Polaroids: React.FC<PolaroidsProps> = ({ mode, uploadedPhotos, selectedPhotoIndex, twoHandsDetected, onClosestPhotoChange }) => {
+export const Polaroids: React.FC<PolaroidsProps> = ({ mode, uploadedPhotos, selectedPhotoIndex, twoHandsDetected, onClosestPhotoChange, onPhotoClick }) => {
   const groupRef = useRef<THREE.Group>(null);
   const [closestPhotoIndex, setClosestPhotoIndex] = React.useState<number>(0);
 
@@ -361,6 +375,7 @@ export const Polaroids: React.FC<PolaroidsProps> = ({ mode, uploadedPhotos, sele
           data={data} 
           mode={mode}
           isSelected={selectedPhotoIndex !== null && selectedPhotoIndex !== undefined && (selectedPhotoIndex - 1 === i)}
+          onPhotoClick={onPhotoClick}
         />
       ))}
     </group>

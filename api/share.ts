@@ -3,7 +3,7 @@ const KV_API_TOKEN = process.env.CLOUDFLARE_KV_API_TOKEN || '';
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 
 // Helper function to retrieve data from Cloudflare KV
-async function getFromKV(shareId: string): Promise<{ images: string[]; createdAt: number } | null> {
+async function getFromKV(shareId: string): Promise<{ images: string[]; music?: any; mask?: string; createdAt: number } | null> {
   try {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/${shareId}`,
@@ -61,7 +61,9 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       success: true,
-      images: shareData.images,
+      images: shareData.images || [],
+      music: shareData.music || null,
+      mask: shareData.mask || 'none',
       createdAt: shareData.createdAt,
     });
   } catch (error: any) {

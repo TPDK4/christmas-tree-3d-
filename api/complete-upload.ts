@@ -3,9 +3,11 @@ const KV_API_TOKEN = process.env.CLOUDFLARE_KV_API_TOKEN || '';
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 
 // Helper function to store data in Cloudflare KV
-async function storeInKV(shareId: string, imageUrls: string[]): Promise<void> {
+async function storeInKV(shareId: string, imageUrls: string[], music?: any, mask?: string): Promise<void> {
   const data = {
     images: imageUrls,
+    music: music || null,
+    mask: mask || 'none',
     createdAt: Date.now(),
   };
 
@@ -43,17 +45,18 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { shareId, imageUrls } = req.body;
+    const { shareId, imageUrls, music, mask } = req.body;
 
     if (!shareId || !imageUrls || !Array.isArray(imageUrls)) {
       return res.status(400).json({ error: 'Invalid request data' });
     }
 
     // Store share data in KV with 30-day expiration
-    await storeInKV(shareId, imageUrls);
+    await storeInKV(shareId, imageUrls, music, mask);
 
     // Return share link
-    const shareLink = `${req.headers.origin || 'https://your-app.vercel.app'}/?share=${shareId}`;
+    const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || '';
+    const shareLink = `${origin}/?share=${shareId}`;
 
     return res.status(200).json({
       success: true,

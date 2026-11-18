@@ -1,15 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
+import { ActiveTrack, MusicSourceType } from '../types';
 
-export type MusicSourceType = 'youtube' | 'spotify' | 'zing' | 'audio' | null;
-
-interface ActiveTrack {
-  type: MusicSourceType;
-  url: string;
-  embedId: string;
-  title: string;
-  artist?: string;
-  extraType?: 'track' | 'playlist' | 'album';
+export interface MusicPlayerProps {
+  track?: ActiveTrack | null;
+  onTrackChange?: (track: ActiveTrack | null) => void;
 }
 
 const PRESET_TRACKS = [
@@ -75,21 +70,88 @@ const PRESET_TRACKS = [
   },
 ];
 
-export const MusicPlayer: React.FC = () => {
+// Parse URL from YouTube, Spotify, ZingMP3 or direct audio
+export const parseMusicUrl = (rawUrl: string): ActiveTrack | null => {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+
+  // 1. YouTube
+  const ytRegex = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i;
+  const ytMatch = trimmed.match(ytRegex);
+  if (ytMatch && ytMatch[1]) {
+    return {
+      type: 'youtube',
+      url: trimmed,
+      embedId: ytMatch[1],
+      title: 'YouTube Track',
+    };
+  }
+
+  // 2. Spotify
+  const spotifyRegex = /open\.spotify\.com\/(track|playlist|album)\/([a-zA-Z0-9]+)/i;
+  const spotifyMatch = trimmed.match(spotifyRegex);
+  if (spotifyMatch && spotifyMatch[1] && spotifyMatch[2]) {
+    return {
+      type: 'spotify',
+      url: trimmed,
+      embedId: spotifyMatch[2],
+      extraType: spotifyMatch[1] as 'track' | 'playlist' | 'album',
+      title: `Spotify ${spotifyMatch[1].toUpperCase()}`,
+    };
+  }
+
+  // 3. ZingMP3
+  const zingRegex = /zingmp3\.vn\/(?:bai-hat\/[^/]+\/|embed\/song\/|song\/)?([A-Z0-9]{8,12})(?:\.html)?/i;
+  const zingMatch = trimmed.match(zingRegex);
+  if (trimmed.includes('zingmp3.vn') && zingMatch && zingMatch[1]) {
+    return {
+      type: 'zing',
+      url: trimmed,
+      embedId: zingMatch[1],
+      title: 'ZingMP3 Track',
+    };
+  }
+
+  // 4. Direct Audio (.mp3, .ogg, .wav, .m4a, .aac, or URL containing audio)
+  const audioExtensions = /\.(mp3|ogg|wav|m4a|aac)(\?.*)?$/i;
+  if (audioExtensions.test(trimmed) || trimmed.startsWith('data:audio/') || trimmed.startsWith('blob:')) {
+    return {
+      type: 'audio',
+      url: trimmed,
+      embedId: '',
+      title: trimmed.split('/').pop()?.split('?')[0] || 'Audio Track',
+    };
+  }
+
+  // 5. Fallback as generic audio stream if URL looks like an HTTP stream
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return {
+      type: 'audio',
+      url: trimmed,
+      embedId: '',
+      title: 'Online Audio Stream',
+    };
+  }
+
+  return null;
+};
+
+export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }) => {
   const { t, language } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [inputUrl, setInputUrl] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  const [activeTrack, setActiveTrack] = useState<ActiveTrack | null>(() => {
-    try {
-      const saved = localStorage.getItem('christmas_active_track');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
-
+  // Default is strictly null - Music does NOT automatically turn on
+  const [activeTrack, setActiveTrack] = useState<ActiveTrack | null>(track || null);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // Sync with track prop if provided (e.g. from shared link or parent)
+  useEffect(() => {
+    if (track !== undefined) {
+      setActiveTrack(track);
+    }
+  }, [track]);
+
   const [volume, setVolume] = useState<number>(() => {
     const saved = localStorage.getItem('christmas_music_volume');
     return saved ? parseFloat(saved) : 0.7;
@@ -121,79 +183,6 @@ export const MusicPlayer: React.FC = () => {
     };
   }, [isOpen]);
 
-  // Save active track
-  useEffect(() => {
-    if (activeTrack) {
-      localStorage.setItem('christmas_active_track', JSON.stringify(activeTrack));
-    }
-  }, [activeTrack]);
-
-  // Parse URL from YouTube, Spotify, ZingMP3 or direct audio
-  const parseMusicUrl = (rawUrl: string): ActiveTrack | null => {
-    const trimmed = rawUrl.trim();
-    if (!trimmed) return null;
-
-    // 1. YouTube
-    const ytRegex = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i;
-    const ytMatch = trimmed.match(ytRegex);
-    if (ytMatch && ytMatch[1]) {
-      return {
-        type: 'youtube',
-        url: trimmed,
-        embedId: ytMatch[1],
-        title: 'YouTube Track',
-      };
-    }
-
-    // 2. Spotify
-    const spotifyRegex = /open\.spotify\.com\/(track|playlist|album)\/([a-zA-Z0-9]+)/i;
-    const spotifyMatch = trimmed.match(spotifyRegex);
-    if (spotifyMatch && spotifyMatch[1] && spotifyMatch[2]) {
-      return {
-        type: 'spotify',
-        url: trimmed,
-        embedId: spotifyMatch[2],
-        extraType: spotifyMatch[1] as 'track' | 'playlist' | 'album',
-        title: `Spotify ${spotifyMatch[1].toUpperCase()}`,
-      };
-    }
-
-    // 3. ZingMP3
-    const zingRegex = /zingmp3\.vn\/(?:bai-hat\/[^/]+\/|embed\/song\/|song\/)?([A-Z0-9]{8,12})(?:\.html)?/i;
-    const zingMatch = trimmed.match(zingRegex);
-    if (trimmed.includes('zingmp3.vn') && zingMatch && zingMatch[1]) {
-      return {
-        type: 'zing',
-        url: trimmed,
-        embedId: zingMatch[1],
-        title: 'ZingMP3 Track',
-      };
-    }
-
-    // 4. Direct Audio (.mp3, .ogg, .wav, .m4a, .aac, or URL containing audio)
-    const audioExtensions = /\.(mp3|ogg|wav|m4a|aac)(\?.*)?$/i;
-    if (audioExtensions.test(trimmed) || trimmed.startsWith('data:audio/') || trimmed.startsWith('blob:')) {
-      return {
-        type: 'audio',
-        url: trimmed,
-        embedId: '',
-        title: trimmed.split('/').pop()?.split('?')[0] || 'Audio Track',
-      };
-    }
-
-    // 5. Fallback as generic audio stream if URL looks like an HTTP stream
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return {
-        type: 'audio',
-        url: trimmed,
-        embedId: '',
-        title: 'Online Audio Stream',
-      };
-    }
-
-    return null;
-  };
-
   const handlePlayFromInput = () => {
     setErrorMsg('');
     if (!inputUrl.trim()) return;
@@ -208,16 +197,17 @@ export const MusicPlayer: React.FC = () => {
     setInputUrl('');
   };
 
-  const playTrack = (track: ActiveTrack) => {
-    setActiveTrack(track);
+  const playTrack = (selected: ActiveTrack) => {
+    setActiveTrack(selected);
     setIsPlaying(true);
     setErrorMsg('');
+    onTrackChange?.(selected);
 
     // If direct audio, play native element
-    if (track.type === 'audio') {
+    if (selected.type === 'audio') {
       setTimeout(() => {
         if (audioRef.current) {
-          audioRef.current.src = track.url;
+          audioRef.current.src = selected.url;
           audioRef.current.play().catch((err) => {
             console.warn('Audio play autoplay error:', err);
           });
@@ -238,7 +228,7 @@ export const MusicPlayer: React.FC = () => {
     }
     setActiveTrack(null);
     setIsPlaying(false);
-    localStorage.removeItem('christmas_active_track');
+    onTrackChange?.(null);
   };
 
   const handleTogglePlayPause = () => {
@@ -271,7 +261,7 @@ export const MusicPlayer: React.FC = () => {
       <button
         onClick={() => setIsOpen((prev) => !prev)}
         title={t('musicTooltip')}
-        className={`group relative flex items-center gap-2 px-3 py-1.5 rounded-lg border backdrop-blur-md transition-all duration-300 cursor-pointer ${
+        className={`group relative flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg border backdrop-blur-md transition-all duration-300 cursor-pointer ${
           isPlaying
             ? 'border-[#D4AF37] bg-[#D4AF37]/25 text-[#F5E6BF] shadow-[0_0_18px_rgba(212,175,55,0.45)]'
             : 'border-[#D4AF37]/50 bg-black/85 hover:bg-[#D4AF37]/20 text-[#D4AF37] hover:text-[#F5E6BF] shadow-[0_0_10px_rgba(0,0,0,0.5)]'
@@ -305,7 +295,7 @@ export const MusicPlayer: React.FC = () => {
         and HTML5 audio CONTINUE PLAYING smoothly in the background when the user closes the popup!
       */}
       <div
-        className={`absolute top-10 right-0 w-[320px] md:w-[360px] p-4 bg-black/95 backdrop-blur-xl border-2 border-[#D4AF37] rounded-xl shadow-[0_0_35px_rgba(212,175,55,0.4)] z-50 text-[#F5E6BF] transition-all duration-200 origin-top-right ${
+        className={`fixed top-14 left-3 right-3 sm:left-auto sm:right-0 sm:absolute sm:top-10 w-auto sm:w-[340px] md:w-[380px] max-w-[calc(100vw-24px)] max-h-[82vh] overflow-y-auto p-3.5 sm:p-4 bg-black/95 backdrop-blur-xl border-2 border-[#D4AF37] rounded-xl shadow-[0_0_35px_rgba(212,175,55,0.4)] z-50 text-[#F5E6BF] transition-all duration-200 origin-top sm:origin-top-right ${
           isOpen
             ? 'opacity-100 scale-100 pointer-events-auto'
             : 'opacity-0 scale-95 pointer-events-none'

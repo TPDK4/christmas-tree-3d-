@@ -6,7 +6,8 @@ import { Experience } from './components/Experience';
 import { UIOverlay } from './components/UIOverlay';
 import { GestureController } from './components/GestureController';
 import { InstructionGuide } from './components/InstructionGuide';
-import { TreeMode } from './types';
+import { TreeMode, ActiveTrack, MaskType } from './types';
+import { parseMusicUrl } from './components/MusicPlayer';
 import { getPhotoByIndex } from './utils/defaultPhotos';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 
@@ -60,47 +61,87 @@ function AppContent() {
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
   const [selectedPhotoTitle, setSelectedPhotoTitle] = useState<string>('');
 
-  // Check for share parameter in URL on mount
+  // Default: AR Face filter is strictly 'none' (Original face) & Music does NOT auto-play
+  const [currentMask, setCurrentMask] = useState<MaskType>('none');
+  const [currentMusic, setCurrentMusic] = useState<ActiveTrack | null>(null);
+
+  // Check for share parameters in URL on mount
   useEffect(() => {
-    const loadSharedPhotos = async () => {
+    const loadSharedState = async () => {
       const urlParams = new URLSearchParams(window.location.search);
-      const shareId = urlParams.get('share');
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
 
-      if (!shareId) return;
+      const shareId = urlParams.get('share') || hashParams.get('share');
+      const paramMask = urlParams.get('mask') || hashParams.get('mask');
+      const paramMusic = urlParams.get('music') || hashParams.get('music');
+      const isCustomTree = urlParams.get('tree') || hashParams.get('tree');
 
-      setIsSharedView(true);
-      setIsLoadingShare(true);
+      if (shareId || paramMask || paramMusic || isCustomTree) {
+        setIsSharedView(true);
+      }
 
-      try {
-        // Try API first (works in vercel dev and production)
+      // 1. Direct URL parameter for AR Face filter
+      if (paramMask) {
+        setCurrentMask(paramMask as MaskType);
+      }
+
+      // 2. Direct URL parameter for Music
+      if (paramMusic) {
+        const parsed = parseMusicUrl(paramMusic);
+        if (parsed) {
+          setCurrentMusic(parsed);
+        }
+      }
+
+      // 3. Share ID via Cloudflare KV API or localStorage fallback
+      if (shareId) {
+        setIsLoadingShare(true);
+
         try {
-          const response = await fetch(`/api/share?id=${shareId}`);
-          const data = await response.json();
+          // Try API first (Cloudflare KV on Vercel)
+          try {
+            const response = await fetch(`/api/share?id=${shareId}`);
+            const data = await response.json();
 
-          if (response.ok && data.success) {
-            setUploadedPhotos(data.images);
-            return;
+            if (response.ok && data.success) {
+              if (data.images && data.images.length > 0) {
+                setUploadedPhotos(data.images);
+              }
+              if (data.mask && !paramMask) {
+                setCurrentMask(data.mask as MaskType);
+              }
+              if (data.music && !paramMusic) {
+                setCurrentMusic(data.music);
+              }
+              return;
+            }
+          } catch (apiError) {
+            console.log('API not available, trying localStorage fallback');
           }
-        } catch (apiError) {
-          console.log('API not available, trying localStorage fallback');
-        }
 
-        // Fallback to localStorage if API fails (pure vite dev mode)
-        const shareDataStr = localStorage.getItem(`share_${shareId}`);
-        if (shareDataStr) {
-          const shareData = JSON.parse(shareDataStr);
-          setUploadedPhotos(shareData.images);
-        } else {
-          console.error('Share not found');
+          // Fallback to localStorage if API fails (dev mode)
+          const shareDataStr = localStorage.getItem(`share_${shareId}`);
+          if (shareDataStr) {
+            const shareData = JSON.parse(shareDataStr);
+            if (shareData.images && shareData.images.length > 0) {
+              setUploadedPhotos(shareData.images);
+            }
+            if (shareData.mask && !paramMask) {
+              setCurrentMask(shareData.mask as MaskType);
+            }
+            if (shareData.music && !paramMusic) {
+              setCurrentMusic(shareData.music);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading shared data:', error);
+        } finally {
+          setIsLoadingShare(false);
         }
-      } catch (error) {
-        console.error('Error loading shared photos:', error);
-      } finally {
-        setIsLoadingShare(false);
       }
     };
 
-    loadSharedPhotos();
+    loadSharedState();
   }, []);
 
   // Update photo if uploaded photos change while a photo is currently open
@@ -142,7 +183,7 @@ function AppContent() {
   };
 
   return (
-    <div className="w-full h-screen relative bg-gradient-to-b from-black via-[#001a0d] to-[#0a2f1e]">
+    <div className="w-full h-screen h-[100dvh] relative bg-gradient-to-b from-black via-[#001a0d] to-[#0a2f1e] overflow-hidden select-none">
       <ErrorBoundary>
         <Canvas
           dpr={[1, 2]}
@@ -157,6 +198,7 @@ function AppContent() {
               uploadedPhotos={uploadedPhotos} 
               twoHandsDetected={twoHandsDetected} 
               selectedPhotoIndex={selectedPhotoIndex}
+              onPhotoClick={handlePhotoFingerSelect}
             />
           </Suspense>
         </Canvas>
@@ -176,6 +218,8 @@ function AppContent() {
         hasPhotos={uploadedPhotos.length > 0}
         uploadedPhotos={uploadedPhotos}
         isSharedView={isSharedView}
+        currentMask={currentMask}
+        currentMusic={currentMusic}
       />
       
       {/* Loading indicator for shared photos */}
@@ -198,6 +242,10 @@ function AppContent() {
         onTwoHandsDetected={handleTwoHandsDetected}
         onPhotoFingerSelect={handlePhotoFingerSelect}
         selectedPhotoIndex={selectedPhotoIndex}
+        currentMask={currentMask}
+        onMaskChange={setCurrentMask}
+        currentMusic={currentMusic}
+        onMusicChange={setCurrentMusic}
       />
       
       {/* Photo Overlay - Triggered when Photo Hand shows 1 to 5 fingers */}
@@ -216,12 +264,11 @@ function AppContent() {
           >
             {/* White Polaroid frame */}
             <div 
-              className="bg-[#FAFAFA] p-4 pt-4 pb-6 shadow-[0_25px_60px_rgba(0,0,0,0.85)] rounded-sm border border-amber-100/40 relative" 
-              style={{ width: '54vmin', maxWidth: '480px' }}
+              className="bg-[#FAFAFA] p-3.5 sm:p-4 pt-4 sm:pt-5 pb-5 sm:pb-6 shadow-[0_25px_60px_rgba(0,0,0,0.85)] rounded-sm border border-amber-100/40 relative w-[88vw] max-w-[420px] md:w-[50vmin]" 
             >
               {/* Gold clip at top */}
-              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-14 h-7 bg-gradient-to-b from-[#F5E6BF] via-[#D4AF37] to-[#A37B1B] rounded-sm shadow-md border border-[#F5E6BF]/80 flex items-center justify-center">
-                <span className="w-2.5 h-2.5 rounded-full bg-black/30 shadow-inner"></span>
+              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-12 sm:w-14 h-6 sm:h-7 bg-gradient-to-b from-[#F5E6BF] via-[#D4AF37] to-[#A37B1B] rounded-sm shadow-md border border-[#F5E6BF]/80 flex items-center justify-center">
+                <span className="w-2 sm:w-2.5 h-2 sm:h-2.5 rounded-full bg-black/30 shadow-inner"></span>
               </div>
 
               {/* Close Button "✕" */}
@@ -230,7 +277,7 @@ function AppContent() {
                   setClosestPhoto(null);
                   setSelectedPhotoIndex(null);
                 }}
-                className="absolute top-2.5 right-2.5 w-7 h-7 rounded-full bg-black/5 hover:bg-black/15 text-gray-400 hover:text-gray-800 flex items-center justify-center text-sm transition-colors cursor-pointer"
+                className="absolute top-2 right-2 sm:top-2.5 sm:right-2.5 w-8 h-8 rounded-full bg-black/10 hover:bg-black/20 text-gray-500 hover:text-gray-900 flex items-center justify-center text-sm sm:text-base transition-colors cursor-pointer"
                 title={t('closePhoto')}
               >
                 ✕
@@ -246,8 +293,8 @@ function AppContent() {
               </div>
               
               {/* Caption Only (Clean Polaroid look) */}
-              <div className="text-center mt-4">
-                <p className="font-serif text-gray-900 text-xl font-bold tracking-wide">
+              <div className="text-center mt-3 sm:mt-4">
+                <p className="font-serif text-gray-900 text-lg sm:text-xl font-bold tracking-wide">
                   {selectedPhotoTitle || 'Merry Christmas'}
                 </p>
               </div>

@@ -15,3 +15,17 @@ export interface ParticleData {
   speed: number;
   color: string;
 }
+
+export type MusicSourceType = 'youtube' | 'spotify' | 'zing' | 'audio' | null;
+
+export interface ActiveTrack {
+  type: MusicSourceType;
+  url: string;
+  embedId: string;
+  title: string;
+  artist?: string;
+  extraType?: 'track' | 'playlist' | 'album';
+}
+
+export type MaskType = 'none' | 'santa' | 'cat' | 'reindeer' | 'snowman' | 'masquerade' | 'cool' | 'blur';
+

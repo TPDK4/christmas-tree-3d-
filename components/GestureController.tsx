@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { FilesetResolver, HandLandmarker, FaceLandmarker } from '@mediapipe/tasks-vision';
-import { TreeMode } from '../types';
+import { TreeMode, ActiveTrack } from '../types';
 import { MaskType, MASK_OPTIONS, FaceMaskRenderer, MASK_METRICS } from './FaceMasks';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageToggle } from './LanguageToggle';
@@ -14,6 +14,10 @@ interface GestureControllerProps {
   onTwoHandsDetected?: (detected: boolean) => void;
   onPhotoFingerSelect?: (photoIndex: number | null) => void;
   selectedPhotoIndex?: number | null;
+  currentMask?: MaskType;
+  onMaskChange?: (mask: MaskType) => void;
+  currentMusic?: ActiveTrack | null;
+  onMusicChange?: (track: ActiveTrack | null) => void;
 }
 
 export interface FingerDetectionResult {
@@ -153,6 +157,10 @@ export const GestureController: React.FC<GestureControllerProps> = ({
   onTwoHandsDetected,
   onPhotoFingerSelect,
   selectedPhotoIndex,
+  currentMask = 'none',
+  onMaskChange,
+  currentMusic = null,
+  onMusicChange,
 }) => {
   const { t } = useLanguage();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -191,10 +199,14 @@ export const GestureController: React.FC<GestureControllerProps> = ({
     }
   }, [selectedPhotoIndex]);
   
-  // Face Mask states (AR filter)
-  const [selectedMask, setSelectedMask] = useState<MaskType>(() => {
-    return (localStorage.getItem('christmas_tree_mask') as MaskType) || 'none';
-  });
+  // Face Mask states (AR filter) - Default is strictly 'none' (Original face)
+  const [selectedMask, setSelectedMask] = useState<MaskType>(currentMask || 'none');
+
+  useEffect(() => {
+    if (currentMask !== undefined) {
+      setSelectedMask(currentMask);
+    }
+  }, [currentMask]);
   const [isMaskPopupOpen, setIsMaskPopupOpen] = useState(false);
   const [isFaceModelLoaded, setIsFaceModelLoaded] = useState(false);
   const [faceTransform, setFaceTransform] = useState<{
@@ -703,11 +715,11 @@ export const GestureController: React.FC<GestureControllerProps> = ({
   }, []);
 
   return (
-    <div className="fixed top-6 right-6 md:right-8 z-50 flex items-start gap-2.5 pointer-events-none select-none">
+    <div className="fixed top-3 right-3 sm:top-6 sm:right-6 md:right-8 z-50 flex items-start gap-1.5 sm:gap-2.5 pointer-events-none select-none">
       {/* Control Buttons (Language Switcher & Music Player) on the LEFT of the Camera */}
-      <div className="pointer-events-auto flex items-center gap-2">
+      <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2">
         <LanguageToggle />
-        <MusicPlayer />
+        <MusicPlayer track={currentMusic} onTrackChange={onMusicChange} />
       </div>
 
       {/* Camera Section */}
@@ -716,10 +728,10 @@ export const GestureController: React.FC<GestureControllerProps> = ({
         {isCameraMinimized && (
           <button
             onClick={() => setIsCameraMinimized(false)}
-            className="group flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#D4AF37]/70 bg-black/90 hover:bg-[#D4AF37]/20 backdrop-blur-md shadow-[0_0_15px_rgba(212,175,55,0.25)] text-[#F5E6BF] hover:text-white text-xs font-sans transition-all cursor-pointer"
+            className="group flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border border-[#D4AF37]/70 bg-black/90 hover:bg-[#D4AF37]/20 backdrop-blur-md shadow-[0_0_15px_rgba(212,175,55,0.25)] text-[#F5E6BF] hover:text-white text-[11px] sm:text-xs font-sans transition-all cursor-pointer"
             title={t('maximizeCamera')}
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="w-1.5 sm:w-2 h-1.5 sm:h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span>{t('cameraTitle')}</span>
             <div className="w-4 h-4 rounded flex items-center justify-center bg-white/10 group-hover:bg-[#D4AF37]/30 transition-colors ml-0.5">
               <svg className="w-2.5 h-2.5 text-[#D4AF37]" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -732,7 +744,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({
         {/* Camera Preview Frame */}
       <div 
         ref={cameraBoxRef}
-        className={`relative w-[10vw] h-[7.5vw] min-w-[125px] min-h-[94px] border-2 border-[#D4AF37] rounded-lg overflow-hidden shadow-[0_0_20px_rgba(212,175,55,0.3)] bg-black transition-all ${isCameraMinimized ? 'hidden' : 'block'}`}
+        className={`relative w-24 h-[72px] sm:w-28 sm:h-[84px] md:w-[130px] md:h-[98px] border-2 border-[#D4AF37] rounded-lg overflow-hidden shadow-[0_0_20px_rgba(212,175,55,0.3)] bg-black transition-all ${isCameraMinimized ? 'hidden' : 'block'}`}
       >
         {/* Decorative Lines */}
         <div className="absolute inset-0 border border-[#F5E6BF]/20 m-1 rounded-sm z-10 pointer-events-none"></div>
@@ -832,7 +844,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({
       {isMaskPopupOpen && !isCameraMinimized && (
         <div 
           ref={popupRef}
-          className="absolute top-full right-0 mt-2 w-72 p-3 bg-black/95 backdrop-blur-md border-2 border-[#D4AF37] rounded-xl shadow-[0_0_25px_rgba(212,175,55,0.4)] z-50 pointer-events-auto animate-scale-in"
+          className="absolute top-full right-0 mt-2 w-[calc(100vw-24px)] max-w-[320px] sm:w-72 p-3 bg-black/95 backdrop-blur-md border-2 border-[#D4AF37] rounded-xl shadow-[0_0_25px_rgba(212,175,55,0.4)] z-50 pointer-events-auto animate-scale-in"
         >
           {/* Header */}
           <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#D4AF37]/30">
@@ -875,7 +887,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({
                   key={opt.id}
                   onClick={() => {
                     setSelectedMask(opt.id);
-                    localStorage.setItem('christmas_tree_mask', opt.id);
+                    onMaskChange?.(opt.id);
                   }}
                   className={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
                     isActive

@@ -81,6 +81,13 @@ export interface Translations {
   photoCapacityError: string;
   closePhoto: string;
   happyMemories: string;
+  // Mobile / Touch controls
+  touchGuideTitle: string;
+  touchRotate: string;
+  touchZoom: string;
+  touchTapPhoto: string;
+  treeToggleUnleash: string;
+  treeToggleForm: string;
 }
 
 export const translations: Record<Language, Translations> = {
@@ -165,6 +172,13 @@ export const translations: Record<Language, Translations> = {
     photoCapacityError: 'Dung lượng ảnh quá lớn, vui lòng giảm kích thước',
     closePhoto: 'Đóng ảnh',
     happyMemories: 'Kỷ Niệm Đẹp',
+    // Mobile / Touch controls
+    touchGuideTitle: 'Thao tác Chạm (Điện thoại / Tablet)',
+    touchRotate: 'Vuốt 1 ngón tay để xoay 360°',
+    touchZoom: 'Chụm 2 ngón để phóng to / thu nhỏ',
+    touchTapPhoto: 'Chạm vào ảnh trên cây để phóng to',
+    treeToggleUnleash: '✨ Bung nở',
+    treeToggleForm: '🌲 Thu gọn',
   },
   en: {
     // Common / Header
@@ -247,5 +261,12 @@ export const translations: Record<Language, Translations> = {
     photoCapacityError: 'Photo file size too large, please reduce size',
     closePhoto: 'Close photo',
     happyMemories: 'Happy Memories',
+    // Mobile / Touch controls
+    touchGuideTitle: 'Touch Controls (Mobile / Tablet)',
+    touchRotate: 'Swipe 1 finger to rotate 360°',
+    touchZoom: 'Pinch 2 fingers to zoom in/out',
+    touchTapPhoto: 'Tap photo on tree to enlarge',
+    treeToggleUnleash: '✨ Unleash',
+    treeToggleForm: '🌲 Form Tree',
   }
 };
