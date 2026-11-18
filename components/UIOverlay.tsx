@@ -205,17 +205,22 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           } else {
             let errorDetail = '';
             try {
-              const errBody = await serverUploadResponse.json();
-              errorDetail = errBody.message || errBody.error || '';
-            } catch {
-              const textBody = await serverUploadResponse.text().catch(() => '');
-              if (serverUploadResponse.status === 413 || textBody.includes('FUNCTION_PAYLOAD_TOO_LARGE')) {
-                errorDetail = 'Dung lượng ảnh vượt quá giới hạn máy chủ (4.5MB). Vui lòng chọn ảnh dung lượng nhẹ hơn.';
-              } else if (serverUploadResponse.status === 504 || textBody.includes('FUNCTION_INVOCATION_TIMEOUT')) {
-                errorDetail = 'Quá thời gian xử lý khi tải ảnh (Timeout). Vui lòng thử lại.';
-              } else if (textBody) {
-                errorDetail = textBody.slice(0, 150);
+              const rawText = await serverUploadResponse.text();
+              try {
+                const errBody = JSON.parse(rawText);
+                errorDetail = errBody.message || errBody.error || '';
+              } catch {
+                if (serverUploadResponse.status === 413 || rawText.includes('FUNCTION_PAYLOAD_TOO_LARGE')) {
+                  errorDetail = 'Dung lượng ảnh vượt quá giới hạn máy chủ (4.5MB). Vui lòng chọn ảnh dung lượng nhẹ hơn.';
+                } else if (serverUploadResponse.status === 504 || rawText.includes('FUNCTION_INVOCATION_TIMEOUT')) {
+                  errorDetail = 'Quá thời gian xử lý khi tải ảnh (Timeout). Vui lòng thử lại.';
+                } else if (rawText) {
+                  const match = rawText.match(/Code: <code>([^<]+)<\/code>/i) || rawText.match(/<title>([^<]+)<\/title>/i);
+                  errorDetail = match ? match[1] : rawText.slice(0, 150);
+                }
               }
+            } catch (readErr) {
+              console.warn('Failed to read response body:', readErr);
             }
             throw new Error(errorDetail || `Tải ảnh lên máy chủ thất bại (HTTP ${serverUploadResponse.status})`);
           }

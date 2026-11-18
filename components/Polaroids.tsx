@@ -65,7 +65,9 @@ const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; i
       }
 
       const loader = new THREE.TextureLoader();
-      loader.setCrossOrigin('anonymous');
+      if (!targetUrl.startsWith('data:') && !targetUrl.startsWith('blob:')) {
+        loader.setCrossOrigin('anonymous');
+      }
 
       loader.load(
         targetUrl,

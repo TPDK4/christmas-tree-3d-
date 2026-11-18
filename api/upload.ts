@@ -1,18 +1,13 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { nanoid } from 'nanoid';
-import { getS3Client, BUCKET_NAME, getCleanAccountId } from './r2';
-
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '4.5mb',
-    },
-  },
-};
+import { getS3Client, BUCKET_NAME, getCleanAccountId } from './_r2';
 
 const KV_NAMESPACE_ID = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
 const KV_API_TOKEN = (process.env.CLOUDFLARE_KV_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
 const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || '').trim().replace(/^["']|["']$/g, '');
+
+function generateShareId(): string {
+  return Math.random().toString(36).substring(2, 10);
+}
 
 // Helper function to convert base64 data to Buffer
 async function parseBase64Image(base64Data: string): Promise<Buffer> {
@@ -64,7 +59,16 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { images, music, mask } = req.body;
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        return res.status(400).json({ error: 'Invalid JSON request body' });
+      }
+    }
+
+    const { images, music, mask } = body || {};
 
     if (!images || !Array.isArray(images) || images.length === 0) {
       return res.status(400).json({ error: 'No images provided' });
@@ -75,7 +79,7 @@ export default async function handler(req: any, res: any) {
     }
 
     // Generate unique share ID
-    const shareId = nanoid(8);
+    const shareId = generateShareId();
     const host = req.headers['x-forwarded-host'] || req.headers.host;
     const proto = req.headers['x-forwarded-proto'] || 'https';
     const origin = req.headers.origin || (host ? `${proto}://${host}` : '');
@@ -150,7 +154,7 @@ export default async function handler(req: any, res: any) {
           r2Success = true;
         } catch (kvError: any) {
           console.error('KV fallback also failed:', kvError);
-          throw r2Error; // Rethrow primary error
+          throw r2Error;
         }
       } else {
         throw r2Error;

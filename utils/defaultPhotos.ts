@@ -44,7 +44,10 @@ const createSvgCard = (bgGradient: [string, string], iconSvg: string, title: str
       ${subtitle}
     </text>
   </svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  const base64Svg = typeof window !== 'undefined' && window.btoa
+    ? window.btoa(unescape(encodeURIComponent(svg)))
+    : Buffer.from(svg).toString('base64');
+  return `data:image/svg+xml;base64,${base64Svg}`;
 };
 
 // 1. Christmas Tree & Star (1 ngón)
