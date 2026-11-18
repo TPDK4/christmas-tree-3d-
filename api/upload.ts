@@ -2,6 +2,14 @@ import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { nanoid } from 'nanoid';
 import { getS3Client, BUCKET_NAME, getCleanAccountId } from './r2';
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '4.5mb',
+    },
+  },
+};
+
 const KV_NAMESPACE_ID = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
 const KV_API_TOKEN = (process.env.CLOUDFLARE_KV_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
 const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || '').trim().replace(/^["']|["']$/g, '');
@@ -79,14 +87,13 @@ export default async function handler(req: any, res: any) {
 
     const cleanAccountId = getCleanAccountId();
     let r2Success = false;
-    const imageUrls: string[] = [];
 
     // Attempt 1: Upload to Cloudflare R2
     try {
       const s3Client = getS3Client();
 
-      for (let i = 0; i < images.length; i++) {
-        const imageData = images[i];
+      // Parallel upload of all images to R2
+      const uploadPromises = images.map(async (imageData, i) => {
         const imageBuffer = await parseBase64Image(imageData);
         const filename = `${shareId}/${i}.jpg`;
 
@@ -99,12 +106,12 @@ export default async function handler(req: any, res: any) {
 
         await s3Client.send(command);
 
-        const imageUrl = publicBase
+        return publicBase
           ? `${publicBase}/${filename}`
           : `${origin}/api/photo?key=${filename}`;
+      });
 
-        imageUrls.push(imageUrl);
-      }
+      const imageUrls = await Promise.all(uploadPromises);
 
       // Store metadata JSON in R2
       const shareMetadata = {

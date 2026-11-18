@@ -37,7 +37,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const [isPanelMinimized, setIsPanelMinimized] = useState<boolean>(false);
 
   // Compress photo before adding to state (optimizes texture RAM & upload speed)
-  const compressImageFile = (file: File, maxDim = 1200, quality = 0.82): Promise<string> => {
+  const compressImageFile = (file: File, maxDim = 720, quality = 0.72): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -70,6 +70,40 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       };
       reader.onerror = () => reject(new Error(`Không thể đọc tệp ${file.name}`));
       reader.readAsDataURL(file);
+    });
+  };
+
+  // Ensure data URL is within compact bounds (< 80KB each) to avoid hitting serverless body payload limits
+  const compressDataUrl = (dataUrl: string, maxDim = 720, quality = 0.72): Promise<string> => {
+    return new Promise((resolve) => {
+      if (!dataUrl.startsWith('data:image/') || dataUrl.length < 50000) {
+        return resolve(dataUrl);
+      }
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
     });
   };
 
@@ -142,14 +176,20 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         // Strategy 1: Serverless upload to Cloudflare R2 + KV
         // Works seamlessly across all devices, zero CORS issues, zero SSL cert mismatch
         try {
-          setUploadProgress(language === 'vi' ? 'Đang tải ảnh và tạo liên kết...' : 'Uploading and saving...');
+          setUploadProgress(language === 'vi' ? 'Đang tối ưu ảnh và tải lên máy chủ...' : 'Optimizing and uploading...');
+
+          // Re-compress all photos right before upload to strictly ensure payload stays tiny (~250-400KB total)
+          const optimizedPhotos = await Promise.all(
+            uploadedPhotos.map((photo) => compressDataUrl(photo, 720, 0.72))
+          );
+
           const serverUploadResponse = await fetch('/api/upload', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              images: uploadedPhotos,
+              images: optimizedPhotos,
               music: currentMusic,
               mask: currentMask,
             }),
@@ -163,8 +203,21 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             setShareLink(finalLink);
             return;
           } else {
-            const errBody = await serverUploadResponse.json().catch(() => ({}));
-            throw new Error(errBody.message || errBody.error || 'Tải ảnh lên máy chủ thất bại');
+            let errorDetail = '';
+            try {
+              const errBody = await serverUploadResponse.json();
+              errorDetail = errBody.message || errBody.error || '';
+            } catch {
+              const textBody = await serverUploadResponse.text().catch(() => '');
+              if (serverUploadResponse.status === 413 || textBody.includes('FUNCTION_PAYLOAD_TOO_LARGE')) {
+                errorDetail = 'Dung lượng ảnh vượt quá giới hạn máy chủ (4.5MB). Vui lòng chọn ảnh dung lượng nhẹ hơn.';
+              } else if (serverUploadResponse.status === 504 || textBody.includes('FUNCTION_INVOCATION_TIMEOUT')) {
+                errorDetail = 'Quá thời gian xử lý khi tải ảnh (Timeout). Vui lòng thử lại.';
+              } else if (textBody) {
+                errorDetail = textBody.slice(0, 150);
+              }
+            }
+            throw new Error(errorDetail || `Tải ảnh lên máy chủ thất bại (HTTP ${serverUploadResponse.status})`);
           }
         } catch (serverErr: any) {
           console.warn('Server upload failed:', serverErr);
