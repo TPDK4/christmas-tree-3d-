@@ -48,23 +48,78 @@ const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; i
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   const [error, setError] = useState(false);
 
-  // Safe texture loading that won't crash the app if a file is missing
+  // Safe texture loading with dual-strategy fallback (Direct TextureLoader + Fetch Blob)
   useEffect(() => {
-    const loader = new THREE.TextureLoader();
-    loader.setCrossOrigin('anonymous');
-    loader.load(
-      data.url,
-      (loadedTex) => {
-        loadedTex.colorSpace = THREE.SRGBColorSpace;
-        setTexture(loadedTex);
-        setError(false);
-      },
-      undefined, // onProgress
-      (err) => {
-        console.warn(`Failed to load image: ${data.url}`, err);
-        setError(true);
+    let isCancelled = false;
+    let objectUrlToRevoke: string | null = null;
+
+    const loadTexture = async () => {
+      // 1. Normalize URL: if from r2.dev or r2.cloudflarestorage.com (which lacks CORS on mobile Safari), route through same-origin /api/photo proxy
+      let targetUrl = data.url;
+      if (targetUrl && (targetUrl.includes('.r2.dev') || targetUrl.includes('.r2.cloudflarestorage.com'))) {
+        try {
+          const parsed = new URL(targetUrl);
+          const pathKey = parsed.pathname.replace(/^\/+/, '');
+          targetUrl = `/api/photo?key=${encodeURIComponent(pathKey)}`;
+        } catch (e) {}
       }
-    );
+
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+
+      loader.load(
+        targetUrl,
+        (loadedTex) => {
+          if (isCancelled) return;
+          loadedTex.colorSpace = THREE.SRGBColorSpace;
+          loadedTex.needsUpdate = true;
+          setTexture(loadedTex);
+          setError(false);
+        },
+        undefined, // onProgress
+        async (err) => {
+          console.warn(`TextureLoader failed for ${targetUrl}, trying fetch blob fallback:`, err);
+          // 2. Fallback: Fetch raw binary blob and create a local blob: URL (bypasses all WebGL image CORS/iOS WebKit bugs)
+          try {
+            const resp = await fetch(targetUrl);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const blob = await resp.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            objectUrlToRevoke = blobUrl;
+
+            loader.load(
+              blobUrl,
+              (blobTex) => {
+                if (isCancelled) return;
+                blobTex.colorSpace = THREE.SRGBColorSpace;
+                blobTex.needsUpdate = true;
+                setTexture(blobTex);
+                setError(false);
+              },
+              undefined,
+              (blobErr) => {
+                if (isCancelled) return;
+                console.error(`Blob texture loading failed:`, blobErr);
+                setError(true);
+              }
+            );
+          } catch (fetchErr) {
+            if (isCancelled) return;
+            console.error(`Fetch blob fallback failed:`, fetchErr);
+            setError(true);
+          }
+        }
+      );
+    };
+
+    loadTexture();
+
+    return () => {
+      isCancelled = true;
+      if (objectUrlToRevoke) {
+        URL.revokeObjectURL(objectUrlToRevoke);
+      }
+    };
   }, [data.url]);
   
   // Random sway offset

@@ -28,10 +28,26 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { key } = req.query;
-  if (!key || typeof key !== 'string') {
+  let rawKey = (req.query.key as string) || '';
+  if (!rawKey) {
     return res.status(400).json({ error: 'Key query parameter is required' });
   }
+
+  // Handle URL decoding (e.g. if key was passed as shareId%2F0.jpg or full URL)
+  let key = rawKey;
+  if (key.startsWith('http://') || key.startsWith('https://')) {
+    try {
+      const urlObj = new URL(key);
+      key = urlObj.pathname;
+    } catch (e) {}
+  }
+
+  try {
+    key = decodeURIComponent(key);
+  } catch (e) {}
+
+  // Strip leading slashes
+  key = key.replace(/^\/+/, '');
 
   try {
     const command = new GetObjectCommand({
@@ -47,13 +63,16 @@ export default async function handler(req: any, res: any) {
     const byteArray = await response.Body.transformToByteArray();
     const buffer = Buffer.from(byteArray);
 
-    res.setHeader('Content-Type', response.ContentType || 'image/jpeg');
-    res.setHeader('Content-Length', buffer.length);
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-
-    return res.status(200).send(buffer);
+    res.writeHead(200, {
+      'Content-Type': response.ContentType || 'image/jpeg',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    });
+    return res.end(buffer);
   } catch (error: any) {
-    console.error('Photo retrieval error:', error);
+    console.error(`Photo retrieval error for key "${key}":`, error?.message);
     return res.status(404).json({ 
       error: 'Photo not found', 
       message: error.message 
