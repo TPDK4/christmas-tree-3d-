@@ -126,18 +126,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     }
   };
 
-  // Helper function to convert base64 to Blob
-  const base64ToBlob = (base64: string): Blob => {
-    const byteString = atob(base64.split(',')[1]);
-    const mimeString = base64.split(',')[0].split(':')[1].split(';')[0];
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) {
-      ia[i] = byteString.charCodeAt(i);
-    }
-    return new Blob([ab], { type: mimeString });
-  };
-
   const handleShare = async () => {
     setIsSharing(true);
     setShareError('');
@@ -149,117 +137,40 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       const maskParam = currentMask;
       const musicParam = currentMusic ? encodeURIComponent(currentMusic.url) : '';
 
-      // CASE A: User uploaded custom photos (1 to 5 images) -> Cloudflare R2 + KV
+      // CASE A: User uploaded custom photos (1 to 5 images) -> Cloudflare R2 + KV via /api/upload
       if (uploadedPhotos && uploadedPhotos.length > 0) {
-        let uploadSucceeded = false;
-
-        // Strategy 1: Direct presigned PUT upload to Cloudflare R2
+        // Strategy 1: Serverless upload to Cloudflare R2 + KV
+        // Works seamlessly across all devices, zero CORS issues, zero SSL cert mismatch
         try {
-          setUploadProgress(language === 'vi' ? 'Đang chuẩn bị tải ảnh lên...' : 'Getting upload URLs...');
-          const urlsResponse = await fetch('/api/get-upload-urls', {
+          setUploadProgress(language === 'vi' ? 'Đang tải ảnh và tạo liên kết...' : 'Uploading and saving...');
+          const serverUploadResponse = await fetch('/api/upload', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              imageCount: uploadedPhotos.length,
+              images: uploadedPhotos,
+              music: currentMusic,
+              mask: currentMask,
             }),
           });
 
-          if (urlsResponse.ok) {
-            const urlsData = await urlsResponse.json();
-            const { shareId, uploadUrls } = urlsData;
-
-            // Upload images directly to R2 presigned URLs
-            let uploadedCount = 0;
-            const uploadPromises = uploadedPhotos.map(async (photo, index) => {
-              const blob = base64ToBlob(photo);
-              const { uploadUrl, publicUrl } = uploadUrls[index];
-
-              const uploadResponse = await fetch(uploadUrl, {
-                method: 'PUT',
-                body: blob,
-                headers: {
-                  'Content-Type': 'image/jpeg',
-                },
-              });
-
-              if (!uploadResponse.ok) {
-                throw new Error(`Upload ảnh ${index + 1} thất bại (HTTP ${uploadResponse.status})`);
-              }
-
-              uploadedCount++;
-              setUploadProgress(
-                language === 'vi'
-                  ? `Đang tải ảnh lên (${uploadedCount}/${uploadedPhotos.length})...`
-                  : `Uploading (${uploadedCount}/${uploadedPhotos.length})...`
-              );
-              return publicUrl;
-            });
-
-            const imageUrls = await Promise.all(uploadPromises);
-
-            // Complete upload in Cloudflare KV including music & mask
-            setUploadProgress(language === 'vi' ? 'Đang lưu cấu hình...' : 'Saving configuration...');
-            const completeResponse = await fetch('/api/complete-upload', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                shareId,
-                imageUrls,
-                music: currentMusic,
-                mask: currentMask,
-              }),
-            });
-
-            if (completeResponse.ok) {
-              const completeData = await completeResponse.json();
-              let finalLink = completeData.shareLink || `${origin}/?share=${shareId}`;
-              if (maskParam !== 'none' && !finalLink.includes('mask=')) finalLink += `&mask=${maskParam}`;
-              if (musicParam && !finalLink.includes('music=')) finalLink += `&music=${musicParam}`;
-              setShareLink(finalLink);
-              uploadSucceeded = true;
-              return;
-            }
+          if (serverUploadResponse.ok) {
+            const serverData = await serverUploadResponse.json();
+            let finalLink = serverData.shareLink || `${origin}/?share=${serverData.shareId}`;
+            if (maskParam !== 'none' && !finalLink.includes('mask=')) finalLink += `&mask=${maskParam}`;
+            if (musicParam && !finalLink.includes('music=')) finalLink += `&music=${musicParam}`;
+            setShareLink(finalLink);
+            return;
+          } else {
+            const errBody = await serverUploadResponse.json().catch(() => ({}));
+            console.warn('Server upload returned error:', errBody);
           }
-        } catch (directPutErr) {
-          console.warn('Direct R2 presigned PUT failed, falling back to serverless upload:', directPutErr);
+        } catch (serverErr) {
+          console.warn('Server upload failed, falling back to local share:', serverErr);
         }
 
-        // Strategy 2: Direct serverless upload via /api/upload
-        // (Bypasses client CORS and client SSL handshake to R2 entirely)
-        if (!uploadSucceeded) {
-          try {
-            setUploadProgress(language === 'vi' ? 'Đang tải ảnh qua máy chủ...' : 'Uploading via server...');
-            const serverUploadResponse = await fetch('/api/upload', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                images: uploadedPhotos,
-                music: currentMusic,
-                mask: currentMask,
-              }),
-            });
-
-            if (serverUploadResponse.ok) {
-              const serverData = await serverUploadResponse.json();
-              let finalLink = serverData.shareLink || `${origin}/?share=${serverData.shareId}`;
-              if (maskParam !== 'none' && !finalLink.includes('mask=')) finalLink += `&mask=${maskParam}`;
-              if (musicParam && !finalLink.includes('music=')) finalLink += `&music=${musicParam}`;
-              setShareLink(finalLink);
-              uploadSucceeded = true;
-              return;
-            }
-          } catch (serverErr) {
-            console.warn('Server upload failed, falling back to local share:', serverErr);
-          }
-        }
-
-        // Strategy 3: Fallback for custom photos if backend is completely unavailable
+        // Strategy 2: Fallback for custom photos if backend is completely unavailable
         const shareId = Math.random().toString(36).substring(2, 10);
         const shareData = {
           images: uploadedPhotos,
@@ -272,8 +183,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         } catch (e) {}
 
         let fallbackLink = `${origin}/?share=${shareId}`;
-        if (maskParam !== 'none') fallbackLink += `&mask=${maskParam}`;
-        if (musicParam) fallbackLink += `&music=${musicParam}`;
+        if (maskParam !== 'none' && !fallbackLink.includes('mask=')) fallbackLink += `&mask=${maskParam}`;
+        if (musicParam && !fallbackLink.includes('music=')) fallbackLink += `&music=${musicParam}`;
         setShareLink(fallbackLink);
         return;
       }
