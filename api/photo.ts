@@ -46,7 +46,20 @@ export default async function handler(req: any, res: any) {
     key = decodeURIComponent(key);
   } catch (e) {}
 
-  // Strip leading slashes
+  // Strip leading slashes and any api/photo prefixes
+  key = key.replace(/^\/+/, '');
+  if (key.includes('api/photo')) {
+    const match = key.match(/key=([^&]+)/);
+    if (match) {
+      try {
+        key = decodeURIComponent(match[1]);
+      } catch (e) {
+        key = match[1];
+      }
+    } else {
+      key = key.replace(/^.*api\/photo\/?/, '');
+    }
+  }
   key = key.replace(/^\/+/, '');
 
   try {

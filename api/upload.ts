@@ -110,7 +110,7 @@ export default async function handler(req: any, res: any) {
 
       const imageUrl = publicBase
         ? `${publicBase}/${filename}`
-        : `${origin}/api/photo?key=${encodeURIComponent(filename)}`;
+        : `${origin}/api/photo?key=${filename}`;
 
       imageUrls.push(imageUrl);
     }

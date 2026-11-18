@@ -3,15 +3,11 @@ import { useLanguage } from '../context/LanguageContext';
 
 export const InstructionGuide: React.FC = () => {
   const { t } = useLanguage();
-  // By default, guide is strictly closed (minimized = true) so it never blocks mobile/desktop on entry
-  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
-    const saved = localStorage.getItem('guide_minimized');
-    return saved !== null ? saved === 'true' : true;
-  });
+  // Strictly closed (minimized) by default on ALL devices (both web and mobile) on entry
+  const [isMinimized, setIsMinimized] = useState<boolean>(true);
 
   const handleToggle = (minimized: boolean) => {
     setIsMinimized(minimized);
-    localStorage.setItem('guide_minimized', minimized ? 'true' : 'false');
   };
 
   return (
