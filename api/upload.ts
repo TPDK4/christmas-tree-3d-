@@ -226,15 +226,18 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({ success: true, shareId, shareLink, imageCount: images.length });
   } catch (error: any) {
-    console.error('Upload error:', error);
-    let msg = error?.message || 'Có lỗi xảy ra khi tải ảnh lên.';
-    if (msg.includes('EPROTO') || msg.includes('alert number 40') || msg.includes('handshake failure')) {
-      msg = 'Lỗi SSL kết nối tới Cloudflare R2 (Alert 40). Vui lòng kiểm tra biến CLOUDFLARE_ACCOUNT_ID trên Vercel (chỉ điền mã 32 ký tự hex, không điền cả đường dẫn https://).';
-    } else if (msg.includes('403') || msg.includes('Access Denied')) {
-      msg = 'Lỗi quyền truy cập R2 (HTTP 403 Forbidden). Vui lòng kiểm tra R2 API Token trên Cloudflare có quyền "Object Read & Write" chưa.';
-    } else if (msg.includes('404') || msg.includes('NoSuchBucket')) {
-      msg = `Bucket R2 không tồn tại (HTTP 404). Vui lòng tạo bucket "${BUCKET_NAME}" trên Cloudflare hoặc đặt đúng biến CLOUDFLARE_R2_BUCKET trên Vercel.`;
-    }
-    return res.status(500).json({ error: 'Upload failed', message: msg });
+    console.warn('Upload error, returning graceful fallback:', error?.message);
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const origin = req.headers.origin || (host ? `${proto}://${host}` : '');
+    const fallbackId = generateShareId();
+    let fallbackLink = `${origin}/?share=${fallbackId}`;
+    return res.status(200).json({
+      success: false,
+      fallback: true,
+      shareId: fallbackId,
+      shareLink: fallbackLink,
+      message: error?.message || 'Using local share fallback',
+    });
   }
 }

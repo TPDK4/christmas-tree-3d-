@@ -197,7 +197,21 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
           if (serverUploadResponse.ok) {
             const serverData = await serverUploadResponse.json();
-            let finalLink = serverData.shareLink || `${origin}/?share=${serverData.shareId}`;
+            const finalShareId = serverData.shareId || Math.random().toString(36).substring(2, 10);
+            
+            // Always persist to localStorage as well so this web browser ALWAYS has instant access to photos
+            const shareData = {
+              images: uploadedPhotos,
+              music: currentMusic,
+              mask: currentMask,
+              createdAt: Date.now(),
+            };
+            try {
+              localStorage.setItem(`share_${finalShareId}`, JSON.stringify(shareData));
+              localStorage.setItem('my_christmas_tree', JSON.stringify(shareData));
+            } catch (e) {}
+
+            let finalLink = serverData.shareLink || `${origin}/?share=${finalShareId}`;
             if (maskParam !== 'none' && !finalLink.includes('mask=')) finalLink += `&mask=${maskParam}`;
             if (musicParam && !finalLink.includes('music=')) finalLink += `&music=${musicParam}`;
             setShareLink(finalLink);
