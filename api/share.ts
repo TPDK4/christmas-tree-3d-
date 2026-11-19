@@ -86,11 +86,14 @@ export default async function handler(req: any, res: any) {
 
     // Diagnostic endpoint to check configured cloud storage
     if (id === 'status' || id === '__health') {
+      const mask = (s: string) => s ? `${s.slice(0, 4)}...${s.slice(-4)} (${s.length})` : 'EMPTY';
       return res.status(200).json({
         status: 'ok',
-        hasAccountId: Boolean(cleanAccountId),
-        hasR2: Boolean(accessKeyId && secretAccessKey && cleanAccountId),
-        hasKV: Boolean(KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId),
+        accountId: mask(cleanAccountId),
+        accessKeyId: mask(accessKeyId),
+        secretAccessKey: mask(secretAccessKey),
+        rawSecretVar: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY ? mask(process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY) : 'EMPTY',
+        rawSecretVar1: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY_1 ? mask(process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY_1) : 'EMPTY',
         bucket: BUCKET_NAME,
       });
     }
