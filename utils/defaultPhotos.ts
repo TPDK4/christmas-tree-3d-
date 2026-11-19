@@ -158,8 +158,7 @@ export const DEFAULT_CHRISTMAS_PHOTOS: PhotoInfo[] = [
 
 /**
  * Get photo info for index 1..5:
- * If user uploaded a photo for that slot, use uploaded photo.
- * If user hasn't uploaded, use the corresponding default Christmas card.
+ * Returns the uploaded photo at slot (index - 1), or empty url if not uploaded.
  */
 export function getPhotoByIndex(index: number, uploadedPhotos: string[]): PhotoInfo {
   const zeroIndex = index - 1;
@@ -171,11 +170,9 @@ export function getPhotoByIndex(index: number, uploadedPhotos: string[]): PhotoI
     };
   }
 
-  // If user uploaded some photos but fewer than index, and wants to wrap
-  if (uploadedPhotos && uploadedPhotos.length > 0 && uploadedPhotos.length < index) {
-    return DEFAULT_CHRISTMAS_PHOTOS[Math.min(Math.max(0, zeroIndex), DEFAULT_CHRISTMAS_PHOTOS.length - 1)];
-  }
-
-  const defaultItem = DEFAULT_CHRISTMAS_PHOTOS[Math.min(Math.max(0, zeroIndex), DEFAULT_CHRISTMAS_PHOTOS.length - 1)];
-  return defaultItem;
+  return {
+    url: '',
+    title: '',
+    desc: ''
+  };
 }

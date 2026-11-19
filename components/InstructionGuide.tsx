@@ -43,7 +43,7 @@ export const InstructionGuide: React.FC = () => {
           </button>
         ) : (
           /* Expanded Instruction Card */
-          <div className="pointer-events-auto w-[calc(100vw-24px)] max-w-[380px] max-h-[82vh] overflow-y-auto p-3.5 sm:p-4 rounded-xl bg-black/95 backdrop-blur-md border-2 border-[#D4AF37] shadow-[0_0_30px_rgba(212,175,55,0.35)] text-[#F5E6BF] font-sans transition-all duration-300 animate-scale-in">
+          <div className="pointer-events-auto w-[calc(100vw-24px)] max-w-[380px] max-h-[82vh] overflow-y-auto custom-scrollbar p-3.5 sm:p-4 rounded-xl bg-black/95 backdrop-blur-md border-2 border-[#D4AF37] shadow-[0_0_30px_rgba(212,175,55,0.35)] text-[#F5E6BF] font-sans transition-all duration-300 animate-scale-in">
             {/* Header */}
             <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-[#D4AF37]/30">
               <div className="flex items-center gap-2">

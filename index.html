@@ -64,6 +64,40 @@
       .animate-scale-in {
         animation: scaleIn 0.4s ease-out;
       }
+
+      /* Synchronized Luxury Gold Scrollbar */
+      .custom-scrollbar::-webkit-scrollbar,
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-track,
+      ::-webkit-scrollbar-track {
+        background: rgba(10, 15, 10, 0.7);
+        border-radius: 9999px;
+        margin: 4px 0;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-thumb,
+      ::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, #D4AF37 0%, #A37B1B 100%);
+        border-radius: 9999px;
+        border: 1px solid rgba(245, 230, 191, 0.35);
+        box-shadow: 0 0 6px rgba(212, 175, 55, 0.3);
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover,
+      ::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(180deg, #F5E6BF 0%, #D4AF37 100%);
+        box-shadow: 0 0 10px rgba(212, 175, 55, 0.6);
+      }
+
+      .custom-scrollbar,
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: #D4AF37 rgba(10, 15, 10, 0.7);
+      }
     </style>
   <script type="importmap">
 {

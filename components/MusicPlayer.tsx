@@ -70,24 +70,72 @@ const PRESET_TRACKS = [
   },
 ];
 
-// Parse URL from YouTube, Spotify, ZingMP3 or direct audio
+// Parse URL from YouTube (Videos, Playlists, Live Streams, Timestamps), SoundCloud, Spotify, ZingMP3, or direct audio
 export const parseMusicUrl = (rawUrl: string): ActiveTrack | null => {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
 
-  // 1. YouTube
-  const ytRegex = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i;
+  // 1. YouTube Playlist ID (e.g. ?list=PL... or &list=PL...)
+  const ytPlaylistMatch = trimmed.match(/[?&]list=([\w-]+)/i);
+  const playlistId = ytPlaylistMatch ? ytPlaylistMatch[1] : undefined;
+
+  // 2. YouTube Video ID (watch?v=, youtu.be/, embed/, v/, live/, shorts/)
+  const ytRegex = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|live\/|shorts\/))([\w-]{11})/i;
   const ytMatch = trimmed.match(ytRegex);
+
+  // Parse start timestamp (e.g., ?t=3600, &t=1h20m15s, ?start=180)
+  let startTime: number | undefined;
+  const tMatch = trimmed.match(/[?&](?:t|start)=([^&#]+)/i);
+  if (tMatch && tMatch[1]) {
+    const tVal = tMatch[1];
+    if (/^\d+$/.test(tVal)) {
+      startTime = parseInt(tVal, 10);
+    } else {
+      let seconds = 0;
+      const hMatch = tVal.match(/(\d+)h/i);
+      const mMatch = tVal.match(/(\d+)m/i);
+      const sMatch = tVal.match(/(\d+)s/i);
+      if (hMatch) seconds += parseInt(hMatch[1], 10) * 3600;
+      if (mMatch) seconds += parseInt(mMatch[1], 10) * 60;
+      if (sMatch) seconds += parseInt(sMatch[1], 10);
+      if (seconds > 0) startTime = seconds;
+    }
+  }
+
+  // A. YouTube video (with optional playlist and start time)
   if (ytMatch && ytMatch[1]) {
     return {
       type: 'youtube',
       url: trimmed,
       embedId: ytMatch[1],
-      title: 'YouTube Track',
+      playlistId: playlistId,
+      startTime: startTime,
+      title: playlistId ? 'YouTube Playlist / Video' : 'YouTube Music',
     };
   }
 
-  // 2. Spotify
+  // B. Pure YouTube playlist link without individual video
+  if (playlistId) {
+    return {
+      type: 'youtube',
+      url: trimmed,
+      embedId: 'videoseries',
+      playlistId: playlistId,
+      title: 'YouTube Playlist (Phát liên tục)',
+    };
+  }
+
+  // 3. SoundCloud (Supports 1h-3h DJ sets, long mixes, playlists)
+  if (trimmed.includes('soundcloud.com/')) {
+    return {
+      type: 'soundcloud',
+      url: trimmed,
+      embedId: trimmed,
+      title: 'SoundCloud Music / Mix',
+    };
+  }
+
+  // 4. Spotify
   const spotifyRegex = /open\.spotify\.com\/(track|playlist|album)\/([a-zA-Z0-9]+)/i;
   const spotifyMatch = trimmed.match(spotifyRegex);
   if (spotifyMatch && spotifyMatch[1] && spotifyMatch[2]) {
@@ -100,7 +148,7 @@ export const parseMusicUrl = (rawUrl: string): ActiveTrack | null => {
     };
   }
 
-  // 3. ZingMP3
+  // 5. ZingMP3
   const zingRegex = /zingmp3\.vn\/(?:bai-hat\/[^/]+\/|embed\/song\/|song\/)?([A-Z0-9]{8,12})(?:\.html)?/i;
   const zingMatch = trimmed.match(zingRegex);
   if (trimmed.includes('zingmp3.vn') && zingMatch && zingMatch[1]) {
@@ -112,7 +160,7 @@ export const parseMusicUrl = (rawUrl: string): ActiveTrack | null => {
     };
   }
 
-  // 4. Direct Audio (.mp3, .ogg, .wav, .m4a, .aac, or URL containing audio)
+  // 6. Direct Audio (.mp3, .ogg, .wav, .m4a, .aac, or URL containing audio)
   const audioExtensions = /\.(mp3|ogg|wav|m4a|aac)(\?.*)?$/i;
   if (audioExtensions.test(trimmed) || trimmed.startsWith('data:audio/') || trimmed.startsWith('blob:')) {
     return {
@@ -123,7 +171,7 @@ export const parseMusicUrl = (rawUrl: string): ActiveTrack | null => {
     };
   }
 
-  // 5. Fallback as generic audio stream if URL looks like an HTTP stream
+  // 7. Fallback as generic audio stream if URL looks like an HTTP stream
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
     return {
       type: 'audio',
@@ -134,6 +182,34 @@ export const parseMusicUrl = (rawUrl: string): ActiveTrack | null => {
   }
 
   return null;
+};
+
+export const getYouTubeEmbedUrl = (track: ActiveTrack): string => {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const params = new URLSearchParams();
+  params.set('autoplay', '1');
+  params.set('enablejsapi', '1');
+  params.set('playsinline', '1');
+  params.set('controls', '1');
+  params.set('rel', '0');
+  if (origin) params.set('origin', origin);
+
+  // If YouTube playlist is provided
+  if (track.playlistId) {
+    params.set('list', track.playlistId);
+  } else if (track.embedId && track.embedId !== 'videoseries') {
+    // Loop the video continuously forever so long music never stops
+    params.set('loop', '1');
+    params.set('playlist', track.embedId);
+  }
+
+  // Start timestamp
+  if (track.startTime && track.startTime > 0) {
+    params.set('start', String(track.startTime));
+  }
+
+  const baseId = track.embedId || 'videoseries';
+  return `https://www.youtube.com/embed/${baseId}?${params.toString()}`;
 };
 
 export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }) => {
@@ -396,7 +472,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
         and HTML5 audio CONTINUE PLAYING smoothly in the background when the user closes the popup!
       */}
       <div
-        className={`fixed top-14 left-3 right-3 sm:left-auto sm:right-0 sm:absolute sm:top-10 w-auto sm:w-[340px] md:w-[380px] max-w-[calc(100vw-24px)] max-h-[82vh] overflow-y-auto p-3.5 sm:p-4 bg-black/95 backdrop-blur-xl border-2 border-[#D4AF37] rounded-xl shadow-[0_0_35px_rgba(212,175,55,0.4)] z-50 text-[#F5E6BF] transition-all duration-200 origin-top sm:origin-top-right ${
+        className={`fixed top-14 left-3 right-3 sm:left-auto sm:right-0 sm:absolute sm:top-10 w-auto sm:w-[340px] md:w-[380px] max-w-[calc(100vw-24px)] max-h-[82vh] overflow-y-auto custom-scrollbar p-3.5 sm:p-4 bg-black/95 backdrop-blur-xl border-2 border-[#D4AF37] rounded-xl shadow-[0_0_35px_rgba(212,175,55,0.4)] z-50 text-[#F5E6BF] transition-all duration-200 origin-top sm:origin-top-right ${
           isOpen
             ? 'opacity-100 scale-100 pointer-events-auto'
             : 'opacity-0 scale-95 pointer-events-none'
@@ -460,6 +536,15 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
             {t('musicSupportedHint')}
           </p>
 
+          <div className="px-2 py-1.5 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/25 text-[10px] text-[#F5E6BF]/90 flex items-start gap-1.5 leading-relaxed">
+            <span className="flex-shrink-0 text-xs">✨</span>
+            <span>
+              {language === 'vi'
+                ? 'Hỗ trợ video dài 1-10 tiếng, playlist & live 24/7. Nếu gặp video bị chủ kênh tắt quyền nhúng (Error 150), bạn hãy chọn một video dài khác hoặc chọn danh sách có sẵn bên dưới nhé!'
+                : 'Supports hours-long mixes, playlists & 24/7 live streams. If a creator disables embedding for a video, simply select another long mix!'}
+            </span>
+          </div>
+
           {errorMsg && (
             <p className="text-[11px] text-rose-400 bg-rose-950/40 px-2 py-1 rounded border border-rose-500/30">
               ⚠️ {errorMsg}
@@ -474,6 +559,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-sm">
                   {activeTrack.type === 'youtube' && '🔴'}
+                  {activeTrack.type === 'soundcloud' && '🟠'}
                   {activeTrack.type === 'spotify' && '🟢'}
                   {activeTrack.type === 'zing' && '🟣'}
                   {activeTrack.type === 'audio' && '🎵'}
@@ -483,7 +569,8 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
                     {activeTrack.title}
                   </span>
                   <span className="text-[10px] text-gray-400">
-                    {activeTrack.type === 'youtube' && t('musicPlatformYoutube')}
+                    {activeTrack.type === 'youtube' && (activeTrack.playlistId ? 'YouTube Playlist' : t('musicPlatformYoutube'))}
+                    {activeTrack.type === 'soundcloud' && 'SoundCloud Mix'}
                     {activeTrack.type === 'spotify' && t('musicPlatformSpotify')}
                     {activeTrack.type === 'zing' && t('musicPlatformZing')}
                     {activeTrack.type === 'audio' && t('musicPlatformAudio')}
@@ -504,16 +591,47 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
               </div>
             </div>
 
-            {/* YouTube Embedded Player - stays mounted continuously */}
+            {/* YouTube Embedded Player - stays mounted continuously & loops indefinitely */}
             {activeTrack.type === 'youtube' && (
               <div className="relative w-full aspect-video rounded-md overflow-hidden border border-[#D4AF37]/40 shadow-md">
                 <iframe
                   ref={ytIframeRef}
-                  src={`https://www.youtube-nocookie.com/embed/${activeTrack.embedId}?autoplay=1&enablejsapi=1&playsinline=1&controls=1&rel=0&origin=${encodeURIComponent(typeof window !== 'undefined' ? window.location.origin : '')}`}
+                  src={getYouTubeEmbedUrl(activeTrack)}
                   title="YouTube Player"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
                   className="w-full h-full"
+                />
+              </div>
+            )}
+
+            {/* Direct Open Link on YouTube in case video has embedding disabled by owner */}
+            {activeTrack.type === 'youtube' && (
+              <div className="mt-1.5 px-2 py-1 rounded bg-black/40 border border-white/10 flex items-center justify-between text-[10px] text-gray-300">
+                <span className="flex items-center gap-1">
+                  <span>💡</span>
+                  <span>{language === 'vi' ? 'Nếu video báo bị tắt quyền phát ngoài web:' : 'If video disabled for embedding:'}</span>
+                </span>
+                <a
+                  href={activeTrack.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#D4AF37] hover:underline font-semibold"
+                >
+                  {language === 'vi' ? 'Xem trên YouTube ↗' : 'Watch on YouTube ↗'}
+                </a>
+              </div>
+            )}
+
+            {/* SoundCloud Embedded Player (Ideal for 1-3 hour continuous mixes) */}
+            {activeTrack.type === 'soundcloud' && (
+              <div className="relative w-full rounded-md overflow-hidden border border-[#D4AF37]/40 shadow-md">
+                <iframe
+                  src={`https://w.soundcloud.com/player/?url=${encodeURIComponent(activeTrack.url)}&color=%23d4af37&auto_play=true&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false`}
+                  width="100%"
+                  height="120"
+                  allow="autoplay"
+                  className="rounded-md"
                 />
               </div>
             )}
@@ -581,7 +699,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
             <span>{t('musicPresetsTitle')}</span>
           </h4>
 
-          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+          <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1">
             {PRESET_TRACKS.map((preset, idx) => {
               const isThisActive = activeTrack?.url === preset.url;
               return (

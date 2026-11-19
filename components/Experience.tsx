@@ -10,7 +10,6 @@ import { Ornaments } from './Ornaments';
 import { Polaroids } from './Polaroids';
 import { TreeStar } from './TreeStar';
 import { TreeMode } from '../types';
-import { DEFAULT_CHRISTMAS_PHOTOS } from '../utils/defaultPhotos';
 
 interface ExperienceProps {
   mode: TreeMode;
@@ -170,7 +169,7 @@ export const Experience: React.FC<ExperienceProps> = ({ mode, handPosition, uplo
           <Ornaments mode={mode} count={600} />
           <Polaroids 
             mode={mode} 
-            uploadedPhotos={uploadedPhotos.length > 0 ? uploadedPhotos : DEFAULT_CHRISTMAS_PHOTOS.map(p => p.url)} 
+            uploadedPhotos={uploadedPhotos} 
             selectedPhotoIndex={selectedPhotoIndex} 
             twoHandsDetected={twoHandsDetected} 
             onClosestPhotoChange={onClosestPhotoChange} 

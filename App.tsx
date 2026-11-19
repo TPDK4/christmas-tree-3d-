@@ -8,7 +8,7 @@ import { GestureController } from './components/GestureController';
 import { InstructionGuide } from './components/InstructionGuide';
 import { TreeMode, ActiveTrack, MaskType } from './types';
 import { parseMusicUrl } from './components/MusicPlayer';
-import { getPhotoByIndex, DEFAULT_CHRISTMAS_PHOTOS } from './utils/defaultPhotos';
+import { getPhotoByIndex } from './utils/defaultPhotos';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 
 // Simple Error Boundary to catch 3D resource loading errors (like textures)
@@ -98,9 +98,9 @@ function AppContent() {
         }
       }
 
-      // 2b. Default festive Christmas tree (no custom photos uploaded)
+      // 2b. Clean tree without default photos
       if (isCustomTree) {
-        setUploadedPhotos(DEFAULT_CHRISTMAS_PHOTOS.map(p => p.url));
+        setUploadedPhotos([]);
       }
 
       // 3. Share ID via Cloudflare KV API or localStorage fallback
@@ -165,9 +165,17 @@ function AppContent() {
   // Update photo if uploaded photos change while a photo is currently open
   useEffect(() => {
     if (selectedPhotoIndex !== null) {
-      const photoInfo = getPhotoByIndex(selectedPhotoIndex, uploadedPhotos);
-      setClosestPhoto(photoInfo.url);
-      setSelectedPhotoTitle(photoInfo.title || 'Merry Christmas');
+      if (selectedPhotoIndex >= 1 && selectedPhotoIndex <= uploadedPhotos.length) {
+        const photoInfo = getPhotoByIndex(selectedPhotoIndex, uploadedPhotos);
+        if (photoInfo.url) {
+          setClosestPhoto(photoInfo.url);
+          setSelectedPhotoTitle(photoInfo.title || 'Merry Christmas');
+          return;
+        }
+      }
+      setClosestPhoto(null);
+      setSelectedPhotoTitle('');
+      setSelectedPhotoIndex(null);
     }
   }, [uploadedPhotos, selectedPhotoIndex]);
 
@@ -185,14 +193,29 @@ function AppContent() {
 
   // Called when Photo Hand detects 1..5 fingers (opens photo 1..5) or 0 fingers (closes photo)
   const handlePhotoFingerSelect = (index: number | null) => {
-    setSelectedPhotoIndex(index);
-    if (index !== null) {
+    if (index !== null && index >= 1 && index <= uploadedPhotos.length) {
       const photoInfo = getPhotoByIndex(index, uploadedPhotos);
-      setClosestPhoto(photoInfo.url);
-      setSelectedPhotoTitle(photoInfo.title || 'Merry Christmas');
-    } else {
-      setClosestPhoto(null);
-      setSelectedPhotoTitle('');
+      if (photoInfo.url) {
+        setSelectedPhotoIndex(index);
+        setClosestPhoto(photoInfo.url);
+        setSelectedPhotoTitle(photoInfo.title || 'Merry Christmas');
+        return;
+      }
+    }
+    // Only open photo if user uploaded one at this index; otherwise close/don't open
+    setSelectedPhotoIndex(null);
+    setClosestPhoto(null);
+    setSelectedPhotoTitle('');
+  };
+
+  const handlePhotoClick = (index: number) => {
+    if (index >= 1 && index <= uploadedPhotos.length) {
+      const photoInfo = getPhotoByIndex(index, uploadedPhotos);
+      if (photoInfo.url) {
+        setSelectedPhotoIndex(index);
+        setClosestPhoto(photoInfo.url);
+        setSelectedPhotoTitle(photoInfo.title || 'Merry Christmas');
+      }
     }
   };
 

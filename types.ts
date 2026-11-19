@@ -16,7 +16,7 @@ export interface ParticleData {
   color: string;
 }
 
-export type MusicSourceType = 'youtube' | 'spotify' | 'zing' | 'audio' | null;
+export type MusicSourceType = 'youtube' | 'spotify' | 'zing' | 'audio' | 'soundcloud' | null;
 
 export interface ActiveTrack {
   type: MusicSourceType;
@@ -25,6 +25,8 @@ export interface ActiveTrack {
   title: string;
   artist?: string;
   extraType?: 'track' | 'playlist' | 'album';
+  playlistId?: string;
+  startTime?: number;
 }
 
 export type MaskType = 'none' | 'santa' | 'cat' | 'reindeer' | 'snowman' | 'masquerade' | 'cool' | 'blur';
