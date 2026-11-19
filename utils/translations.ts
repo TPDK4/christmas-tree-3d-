@@ -92,6 +92,13 @@ export interface Translations {
   touchRotate: string;
   touchZoom: string;
   touchTapPhoto: string;
+  // Desktop / Mouse controls
+  mouseGuideTitle: string;
+  mouseRotate: string;
+  mouseZoom: string;
+  mouseClickPhoto: string;
+  handRightDesktop: string;
+  handLeftDesktop: string;
   treeToggleUnleash: string;
   treeToggleForm: string;
 }
@@ -189,6 +196,13 @@ export const translations: Record<Language, Translations> = {
     touchRotate: 'Vuốt 1 ngón tay để xoay 360°',
     touchZoom: 'Chụm 2 ngón để phóng to / thu nhỏ',
     touchTapPhoto: 'Chạm vào ảnh trên cây để phóng to',
+    // Desktop / Mouse controls
+    mouseGuideTitle: 'Thao tác Chuột (Máy tính / Laptop)',
+    mouseRotate: 'Giữ chuột trái & rê để xoay 360°',
+    mouseZoom: 'Cuộn con lăn chuột để phóng to / thu nhỏ',
+    mouseClickPhoto: 'Nhấp chuột vào ảnh trên cây để phóng to',
+    handRightDesktop: 'Tay Phải • Cây Thông',
+    handLeftDesktop: 'Tay Trái • Chọn Ảnh (1 – 5 ngón)',
     treeToggleUnleash: '✨ Bung nở',
     treeToggleForm: '🌲 Thu gọn',
   },
@@ -284,6 +298,13 @@ export const translations: Record<Language, Translations> = {
     touchRotate: 'Swipe 1 finger to rotate 360°',
     touchZoom: 'Pinch 2 fingers to zoom in/out',
     touchTapPhoto: 'Tap photo on tree to enlarge',
+    // Desktop / Mouse controls
+    mouseGuideTitle: 'Mouse Controls (Desktop / Laptop)',
+    mouseRotate: 'Left click & drag to rotate 360°',
+    mouseZoom: 'Scroll mouse wheel to zoom in/out',
+    mouseClickPhoto: 'Click photo on tree to enlarge',
+    handRightDesktop: 'Right Hand • Christmas Tree',
+    handLeftDesktop: 'Left Hand • View Photos (1 – 5)',
     treeToggleUnleash: '✨ Unleash',
     treeToggleForm: '🌲 Form Tree',
   }
