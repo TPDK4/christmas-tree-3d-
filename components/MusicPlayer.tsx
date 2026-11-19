@@ -220,7 +220,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
   // Default is strictly null - Music does NOT automatically turn on
   const [activeTrack, setActiveTrack] = useState<ActiveTrack | null>(track || null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [showPlayBanner, setShowPlayBanner] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -228,7 +227,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
 
   const triggerPlayMusic = () => {
     setIsPlaying(true);
-    setShowPlayBanner(false);
 
     if (activeTrack?.type === 'youtube' && ytIframeRef.current) {
       try {
@@ -255,14 +253,11 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
     if (track) {
       setActiveTrack(track);
       setIsPlaying(true);
-      setShowPlayBanner(true);
 
       const tryInitialAutoplay = () => {
         if (track.type === 'audio' && audioRef.current) {
           audioRef.current.src = track.url;
-          audioRef.current.play().then(() => {
-            setShowPlayBanner(false);
-          }).catch((err) => {
+          audioRef.current.play().catch((err) => {
             console.warn('Audio autoplay blocked, will start on user gesture:', err);
           });
         } else if (track.type === 'youtube' && ytIframeRef.current) {
@@ -284,7 +279,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
     } else if (track === null) {
       setActiveTrack(null);
       setIsPlaying(false);
-      setShowPlayBanner(false);
       if (audioRef.current) {
         audioRef.current.pause();
       }
@@ -453,17 +447,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5"></span>
         )}
       </button>
-
-      {/* Floating Prompt for Mobile / Desktop browsers requiring tap to play */}
-      {showPlayBanner && activeTrack && (
-        <button
-          onClick={triggerPlayMusic}
-          className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-gradient-to-r from-[#D4AF37] via-[#F5E6BF] to-[#D4AF37] text-black font-semibold text-xs shadow-[0_0_25px_rgba(212,175,55,0.7)] animate-bounce cursor-pointer active:scale-95 transition-transform select-none whitespace-nowrap"
-        >
-          <span className="text-base animate-pulse">🎵</span>
-          <span>{language === 'vi' ? 'Chạm để bật nhạc Giáng Sinh 🔊' : 'Tap to play Christmas music 🔊'}</span>
-        </button>
-      )}
 
       {/* 
         Music Controller Dropdown Modal 

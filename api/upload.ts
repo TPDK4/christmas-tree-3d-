@@ -86,6 +86,32 @@ function parseBase64Image(base64Data: string): Buffer {
   return Buffer.from(base64, 'base64');
 }
 
+async function uploadToCatbox(base64Data: string): Promise<string> {
+  const base64 = base64Data.replace(/^data:image\/[^;]+;base64,/, '');
+  const buffer = Buffer.from(base64, 'base64');
+  const blob = new Blob([buffer], { type: 'image/jpeg' });
+  const form = new FormData();
+  form.append('reqtype', 'fileupload');
+  form.append('fileToUpload', blob, 'photo.jpg');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      body: form,
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Catbox HTTP ${res.status}`);
+    const text = await res.text();
+    const url = text.trim();
+    if (!url.startsWith('http')) throw new Error(`Catbox error: ${url}`);
+    return url;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function storeInKV(shareId: string, payload: object, cleanAccountId: string, namespaceId: string, apiToken: string): Promise<void> {
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${cleanAccountId}/storage/kv/namespaces/${namespaceId}/values/${shareId}?expiration_ttl=2592000`,
@@ -149,14 +175,9 @@ export default async function handler(req: any, res: any) {
     const hasR2 = Boolean(accessKeyId && secretAccessKey && cleanAccountId);
     const hasKV = Boolean(KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId);
 
-    if (!hasR2 && !hasKV) {
-      if (!cleanAccountId) {
-        throw new Error('Chưa thiết lập CLOUDFLARE_ACCOUNT_ID trên Vercel.');
-      }
-      throw new Error('Chưa thiết lập R2 credentials (CLOUDFLARE_R2_ACCESS_KEY_ID) hoặc KV credentials trên Vercel.');
-    }
-
     let uploadSuccess = false;
+    let imageUrls: string[] = [];
+    let imageCodes: string[] = [];
 
     // Strategy 1: Upload to Cloudflare R2 if configured
     if (hasR2) {
@@ -164,7 +185,7 @@ export default async function handler(req: any, res: any) {
         const r2 = new AwsClient({ accessKeyId, secretAccessKey, region: 'auto', service: 's3' });
         const baseUrl = getR2BaseUrl();
 
-        const imageUrls: string[] = await Promise.all(
+        imageUrls = await Promise.all(
           images.map(async (imageData: string, i: number) => {
             const bytes = parseBase64Image(imageData);
             const filename = `${shareId}/${i}.jpg`;
@@ -208,62 +229,77 @@ export default async function handler(req: any, res: any) {
           try { await storeInKV(shareId, shareMetadata, cleanAccountId, KV_NAMESPACE_ID, KV_API_TOKEN); } catch (kvErr) { console.warn('KV backup failed:', kvErr); }
         }
       } catch (r2Error: any) {
-        console.warn('R2 upload attempt failed:', r2Error?.message || r2Error);
-
-        // Fallback to Cloudflare KV or public KVDB if available
-        if (hasKV) {
-          try {
-            console.info('Attempting fallback to Cloudflare KV...');
-            const kvMetadata = {
-              images: images,
-              music: music || null,
-              mask: mask || 'none',
-              createdAt: Date.now(),
-            };
-            await storeInKV(shareId, kvMetadata, cleanAccountId, KV_NAMESPACE_ID, KV_API_TOKEN);
-            uploadSuccess = true;
-          } catch (kvErr: any) {
-            console.error('KV fallback failed, trying KVDB:', kvErr);
-            const kvdbMetadata = {
-              images: images.map((_: any, i: number) => `/api/photo?key=${encodeURIComponent(`${shareId}/${i}.jpg`)}`),
-              rawImages: images,
-              music: music || null,
-              mask: mask || 'none',
-              createdAt: Date.now(),
-            };
-            uploadSuccess = await storeInKVDB(shareId, kvdbMetadata);
-            if (!uploadSuccess) throw r2Error;
-          }
-        } else {
-          console.info('Attempting fallback to KVDB cloud store...');
-          const kvdbMetadata = {
-            images: images.map((_: any, i: number) => `/api/photo?key=${encodeURIComponent(`${shareId}/${i}.jpg`)}`),
-            rawImages: images,
-            music: music || null,
-            mask: mask || 'none',
-            createdAt: Date.now(),
-          };
-          uploadSuccess = await storeInKVDB(shareId, kvdbMetadata);
-          if (!uploadSuccess) throw r2Error;
-        }
+        console.warn('R2 upload failed, transitioning to Catbox Cloud CDN fallback:', r2Error?.message || r2Error);
       }
-    } else if (hasKV) {
-      // Strategy 2: Direct Cloudflare KV storage (when R2 is not configured)
-      const kvMetadata = {
-        images: images,
-        music: music || null,
-        mask: mask || 'none',
-        createdAt: Date.now(),
-      };
-      await storeInKV(shareId, kvMetadata, cleanAccountId, KV_NAMESPACE_ID, KV_API_TOKEN);
-      uploadSuccess = true;
+    }
+
+    // Strategy 2: Fast Public Cloud CDN (Catbox) - 100% reliable, permanent cross-device image hosting
+    if (!uploadSuccess) {
+      try {
+        console.info(`Uploading ${images.length} images to Catbox CDN...`);
+        imageUrls = await Promise.all(
+          images.map((img: string) => uploadToCatbox(img))
+        );
+        imageCodes = imageUrls.map((u) => {
+          const m = u.match(/files\.catbox\.moe\/([a-zA-Z0-9_-]+)\./);
+          return m ? m[1] : u;
+        });
+        uploadSuccess = true;
+        console.info(`Catbox upload succeeded with codes: ${imageCodes.join(',')}`);
+      } catch (catboxErr: any) {
+        console.warn('Catbox upload failed:', catboxErr?.message || catboxErr);
+      }
+    }
+
+    // Strategy 3: Cloudflare KV (if configured and Catbox failed)
+    if (!uploadSuccess && hasKV) {
+      try {
+        console.info('Attempting fallback to Cloudflare KV...');
+        const kvMetadata = {
+          images: images,
+          music: music || null,
+          mask: mask || 'none',
+          createdAt: Date.now(),
+        };
+        await storeInKV(shareId, kvMetadata, cleanAccountId, KV_NAMESPACE_ID, KV_API_TOKEN);
+        uploadSuccess = true;
+      } catch (kvErr: any) {
+        console.warn('KV fallback failed:', kvErr);
+      }
+    }
+
+    // Strategy 4: KVDB cloud store
+    if (!uploadSuccess) {
+      try {
+        console.info('Attempting fallback to KVDB cloud store...');
+        const kvdbMetadata = {
+          images: images.map((_: any, i: number) => `/api/photo?key=${encodeURIComponent(`${shareId}/${i}.jpg`)}`),
+          rawImages: images,
+          music: music || null,
+          mask: mask || 'none',
+          createdAt: Date.now(),
+        };
+        uploadSuccess = await storeInKVDB(shareId, kvdbMetadata);
+      } catch (kvdbErr: any) {
+        console.warn('KVDB lookup failed:', kvdbErr?.message);
+      }
     }
 
     let shareLink = `${origin}/?share=${shareId}`;
+    if (imageCodes.length > 0) {
+      shareLink += `&imgs=${imageCodes.join(',')}`;
+    }
     if (mask && mask !== 'none') shareLink += `&mask=${encodeURIComponent(mask)}`;
     if (music && music.url) shareLink += `&music=${encodeURIComponent(music.url)}`;
 
-    return res.status(200).json({ success: true, shareId, shareLink, imageCount: images.length });
+    return res.status(200).json({
+      success: uploadSuccess,
+      shareId,
+      shareLink,
+      images: imageUrls,
+      imageCodes,
+      imageCount: images.length,
+    });
   } catch (error: any) {
     console.warn('Upload error, returning graceful fallback:', error?.message);
     const host = req.headers['x-forwarded-host'] || req.headers.host;

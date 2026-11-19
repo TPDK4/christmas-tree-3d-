@@ -85,8 +85,10 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { id } = req.query;
-    if (!id || typeof id !== 'string') return res.status(400).json({ error: 'Share ID is required' });
+    const rawId = req.query.id;
+    if (!rawId || typeof rawId !== 'string') return res.status(400).json({ error: 'Share ID is required' });
+    const id = rawId.replace(/^[-/]+/, '').trim();
+    if (!id) return res.status(400).json({ error: 'Valid Share ID is required' });
 
     const cleanAccountId = getCleanAccountId();
     const { accessKeyId, secretAccessKey } = getR2Credentials();
@@ -106,7 +108,12 @@ export default async function handler(req: any, res: any) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'ok', timestamp: Date.now() }),
           });
-          r2TestResult = testResp.ok ? 'SUCCESS (HTTP 200)' : `FAILED (HTTP ${testResp.status})`;
+          if (testResp.ok) {
+            r2TestResult = 'SUCCESS (HTTP 200)';
+          } else {
+            const errText = await testResp.text().catch(() => '');
+            r2TestResult = `FAILED (HTTP ${testResp.status}): ${errText.slice(0, 200)}`;
+          }
         } catch (err: any) {
           r2TestResult = `ERROR: ${err.message}`;
         }

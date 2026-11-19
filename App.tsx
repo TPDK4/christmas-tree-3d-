@@ -74,15 +74,32 @@ function AppContent() {
       const rawShareId = urlParams.get('share') || hashParams.get('share');
       let shareId = rawShareId ? rawShareId.trim() : null;
       if (shareId) {
-        // Strip accidental prefixes like "k/" or leading/trailing slashes
-        shareId = shareId.replace(/^[a-zA-Z]\//, '').replace(/^\/+/, '').replace(/[^a-zA-Z0-9_-]/g, '');
+        // Strip accidental prefixes like "k/" or leading hyphens/slashes
+        shareId = shareId.replace(/^[a-zA-Z]\//, '').replace(/^[-/]+/, '').replace(/[^a-zA-Z0-9_-]/g, '');
       }
+      const paramImgs = urlParams.get('imgs') || hashParams.get('imgs');
       const paramMask = urlParams.get('mask') || hashParams.get('mask');
       const paramMusic = urlParams.get('music') || hashParams.get('music');
       const isCustomTree = urlParams.get('tree') || hashParams.get('tree');
 
-      if (shareId || paramMask || paramMusic || isCustomTree) {
+      if (shareId || paramImgs || paramMask || paramMusic || isCustomTree) {
         setIsSharedView(true);
+      }
+
+      // 0. Direct URL parameter for Photos (Catbox CDN codes or full image URLs)
+      if (paramImgs) {
+        try {
+          const rawImgs = decodeURIComponent(paramImgs).split(',').map(s => s.trim()).filter(Boolean);
+          const resolvedUrls = rawImgs.map(s => {
+            if (s.startsWith('http://') || s.startsWith('https://')) return s;
+            return `https://files.catbox.moe/${s}.jpg`;
+          });
+          if (resolvedUrls.length > 0) {
+            setUploadedPhotos(resolvedUrls);
+          }
+        } catch (e) {
+          console.warn('Error parsing imgs param:', e);
+        }
       }
 
       // 1. Direct URL parameter for AR Face filter
@@ -142,7 +159,7 @@ function AppContent() {
           if (shareDataStr) {
             const shareData = JSON.parse(shareDataStr);
             if (shareData.images && shareData.images.length > 0) {
-              setUploadedPhotos(shareData.images);
+              setUploadedPhotos((prev) => (prev.length > 0 ? prev : shareData.images));
             }
             if (shareData.mask && !paramMask) {
               setCurrentMask(shareData.mask as MaskType);
