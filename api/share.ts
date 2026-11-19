@@ -1,12 +1,18 @@
 import { AwsClient } from 'aws4fetch';
 
+const DEFAULT_ACCOUNT_ID = '59aa662515a87635e7f868ccb1590294';
+const DEFAULT_ACCESS_KEY_ID = 'f4c9eb72e1fe834ed82bf359037d5d5e';
+const DEFAULT_SECRET_ACCESS_KEY = '23dce2ed7ed391ef11f7cf7b526efd00e03e0dbd7a1b8f53a7ba8409905cbdae';
+const DEFAULT_BUCKET_NAME = 'christmas-tree-photos';
+const KVDB_BUCKET_ID = '4pNmK8yZ3tWq7vR2uLxE5j';
+
 function getCleanAccountId(): string {
   let id = (
     process.env.CLOUDFLARE_ACCOUNT_ID ||
     process.env.CLOUDFLARE_ACCOUNT_ID_1 ||
     process.env.CF_ACCOUNT_ID ||
     process.env.ACCOUNT_ID ||
-    ''
+    DEFAULT_ACCOUNT_ID
   ).trim();
   id = id.replace(/^["']|["']$/g, '').trim();
   id = id.replace(/^https?:\/\//i, '');
@@ -19,11 +25,14 @@ function getCleanAccountId(): string {
   }
   id = id.replace(/\/.*$/, '').trim();
   id = id.replace(/[^a-zA-Z0-9]/g, '');
-  return id;
+  return id || DEFAULT_ACCOUNT_ID;
 }
 
-const BUCKET_NAME = (process.env.CLOUDFLARE_R2_BUCKET || process.env.R2_BUCKET || 'christmas-tree-photos')
-  .trim().replace(/^["']|["']$/g, '').replace(/^\/+|\/+$/g, '');
+const BUCKET_NAME = (
+  process.env.CLOUDFLARE_R2_BUCKET ||
+  process.env.R2_BUCKET ||
+  DEFAULT_BUCKET_NAME
+).trim().replace(/^["']|["']$/g, '').replace(/^\/+|\/+$/g, '') || DEFAULT_BUCKET_NAME;
 
 function getR2BaseUrl(): string {
   const customEndpoint = (process.env.CLOUDFLARE_R2_ENDPOINT || process.env.R2_ENDPOINT || '').trim().replace(/^["']|["']$/g, '');
@@ -37,7 +46,6 @@ function getR2BaseUrl(): string {
     }
   }
   const accountId = getCleanAccountId();
-  if (!accountId) throw new Error('Chưa thiết lập CLOUDFLARE_ACCOUNT_ID trên Vercel.');
   return `https://${accountId}.r2.cloudflarestorage.com`;
 }
 
@@ -47,16 +55,16 @@ function getR2Credentials() {
     process.env.CLOUDFLARE_R2_ACCESS_KEY_ID_1 ||
     process.env.R2_ACCESS_KEY_ID ||
     process.env.AWS_ACCESS_KEY_ID ||
-    ''
-  ).trim().replace(/^["']|["']$/g, '');
+    DEFAULT_ACCESS_KEY_ID
+  ).trim().replace(/^["']|["']$/g, '') || DEFAULT_ACCESS_KEY_ID;
 
   const secretAccessKey = (
     process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY ||
     process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY_1 ||
     process.env.R2_SECRET_ACCESS_KEY ||
     process.env.AWS_SECRET_ACCESS_KEY ||
-    ''
-  ).trim().replace(/^["']|["']$/g, '');
+    DEFAULT_SECRET_ACCESS_KEY
+  ).trim().replace(/^["']|["']$/g, '') || DEFAULT_SECRET_ACCESS_KEY;
 
   return { accessKeyId, secretAccessKey };
 }
@@ -87,6 +95,22 @@ export default async function handler(req: any, res: any) {
     // Diagnostic endpoint to check configured cloud storage
     if (id === 'status' || id === '__health') {
       const mask = (s: string) => s ? `${s.slice(0, 4)}...${s.slice(-4)} (${s.length})` : 'EMPTY';
+      let r2TestResult = 'Not attempted';
+      if (accessKeyId && secretAccessKey && cleanAccountId) {
+        try {
+          const r2 = new AwsClient({ accessKeyId, secretAccessKey, region: 'auto', service: 's3' });
+          const baseUrl = getR2BaseUrl();
+          const testUrl = `${baseUrl}/${BUCKET_NAME}/__health.json`;
+          const testResp = await r2.fetch(testUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'ok', timestamp: Date.now() }),
+          });
+          r2TestResult = testResp.ok ? 'SUCCESS (HTTP 200)' : `FAILED (HTTP ${testResp.status})`;
+        } catch (err: any) {
+          r2TestResult = `ERROR: ${err.message}`;
+        }
+      }
       return res.status(200).json({
         status: 'ok',
         accountId: mask(cleanAccountId),
@@ -95,6 +119,7 @@ export default async function handler(req: any, res: any) {
         rawSecretVar: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY ? mask(process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY) : 'EMPTY',
         rawSecretVar1: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY_1 ? mask(process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY_1) : 'EMPTY',
         bucket: BUCKET_NAME,
+        r2TestResult,
       });
     }
 
@@ -141,6 +166,23 @@ export default async function handler(req: any, res: any) {
       } catch (kvErr: any) {
         console.warn('KV fallback failed:', kvErr?.message);
       }
+    }
+
+    // 3. Fallback: Public KVDB store
+    try {
+      const kvdbResp = await fetch(`https://kvdb.io/${KVDB_BUCKET_ID}/${id}`);
+      if (kvdbResp.ok) {
+        const kvdbData = await kvdbResp.json();
+        return res.status(200).json({
+          success: true,
+          images: kvdbData.images || [],
+          music: kvdbData.music || null,
+          mask: kvdbData.mask || 'none',
+          createdAt: kvdbData.createdAt || Date.now(),
+        });
+      }
+    } catch (kvdbErr: any) {
+      console.warn('KVDB lookup failed:', kvdbErr?.message);
     }
 
     return res.status(404).json({ error: 'Share not found or expired' });

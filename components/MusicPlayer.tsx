@@ -144,50 +144,102 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
   // Default is strictly null - Music does NOT automatically turn on
   const [activeTrack, setActiveTrack] = useState<ActiveTrack | null>(track || null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showPlayBanner, setShowPlayBanner] = useState(false);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const ytIframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  const triggerPlayMusic = () => {
+    setIsPlaying(true);
+    setShowPlayBanner(false);
+
+    if (activeTrack?.type === 'youtube' && ytIframeRef.current) {
+      try {
+        ytIframeRef.current.contentWindow?.postMessage(
+          JSON.stringify({ event: 'command', func: 'unMute', args: '' }),
+          '*'
+        );
+        ytIframeRef.current.contentWindow?.postMessage(
+          JSON.stringify({ event: 'command', func: 'playVideo', args: '' }),
+          '*'
+        );
+      } catch (e) {
+        console.warn('YouTube play command error:', e);
+      }
+    } else if (activeTrack?.type === 'audio' && audioRef.current) {
+      audioRef.current.play().catch((err) => {
+        console.warn('Audio play error:', err);
+      });
+    }
+  };
 
   // Sync with track prop if provided (e.g. from shared link or parent)
   useEffect(() => {
     if (track) {
       setActiveTrack(track);
       setIsPlaying(true);
+      setShowPlayBanner(true);
 
-      // Direct audio: Start playback immediately, handling browser Autoplay Policy
-      if (track.type === 'audio') {
-        const tryPlayAudio = () => {
-          if (audioRef.current) {
-            audioRef.current.src = track.url;
-            audioRef.current.play().catch((err) => {
-              console.warn('Browser blocked autoplay on load, waiting for first user gesture:', err);
-              // Listen for first user tap/click anywhere to start playing audio
-              const startOnInteraction = () => {
-                if (audioRef.current) {
-                  audioRef.current.play().catch(console.warn);
-                }
-              };
-              window.addEventListener('click', startOnInteraction, { once: true });
-              window.addEventListener('touchstart', startOnInteraction, { once: true });
-              window.addEventListener('pointerdown', startOnInteraction, { once: true });
-            });
-          }
-        };
-        setTimeout(tryPlayAudio, 150);
-      }
+      const tryInitialAutoplay = () => {
+        if (track.type === 'audio' && audioRef.current) {
+          audioRef.current.src = track.url;
+          audioRef.current.play().then(() => {
+            setShowPlayBanner(false);
+          }).catch((err) => {
+            console.warn('Audio autoplay blocked, will start on user gesture:', err);
+          });
+        } else if (track.type === 'youtube' && ytIframeRef.current) {
+          try {
+            ytIframeRef.current.contentWindow?.postMessage(
+              JSON.stringify({ event: 'command', func: 'unMute', args: '' }),
+              '*'
+            );
+            ytIframeRef.current.contentWindow?.postMessage(
+              JSON.stringify({ event: 'command', func: 'playVideo', args: '' }),
+              '*'
+            );
+          } catch (e) {}
+        }
+      };
+
+      setTimeout(tryInitialAutoplay, 300);
+      setTimeout(tryInitialAutoplay, 1200);
     } else if (track === null) {
       setActiveTrack(null);
       setIsPlaying(false);
+      setShowPlayBanner(false);
       if (audioRef.current) {
         audioRef.current.pause();
       }
     }
   }, [track]);
 
+  // Global user interaction listener to unmute & start music on first touch/click
+  useEffect(() => {
+    if (!activeTrack) return;
+
+    const onUserInteraction = () => {
+      triggerPlayMusic();
+    };
+
+    window.addEventListener('click', onUserInteraction, { once: true });
+    window.addEventListener('touchstart', onUserInteraction, { once: true });
+    window.addEventListener('pointerdown', onUserInteraction, { once: true });
+    window.addEventListener('keydown', onUserInteraction, { once: true });
+
+    return () => {
+      window.removeEventListener('click', onUserInteraction);
+      window.removeEventListener('touchstart', onUserInteraction);
+      window.removeEventListener('pointerdown', onUserInteraction);
+      window.removeEventListener('keydown', onUserInteraction);
+    };
+  }, [activeTrack]);
+
   const [volume, setVolume] = useState<number>(() => {
     const saved = localStorage.getItem('christmas_music_volume');
     return saved ? parseFloat(saved) : 0.7;
   });
-
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   // Sync volume with audio element
   useEffect(() => {
@@ -288,11 +340,18 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
 
       {/* Floating Music Button (Luxury Gold Glassmorphism) */}
       <button
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={() => {
+          if (!isPlaying && activeTrack) {
+            triggerPlayMusic();
+          }
+          setIsOpen((prev) => !prev);
+        }}
         title={t('musicTooltip')}
         className={`group relative flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg border backdrop-blur-md transition-all duration-300 cursor-pointer ${
           isPlaying
             ? 'border-[#D4AF37] bg-[#D4AF37]/25 text-[#F5E6BF] shadow-[0_0_18px_rgba(212,175,55,0.45)]'
+            : activeTrack
+            ? 'border-[#D4AF37] bg-black/90 text-[#D4AF37] hover:text-[#F5E6BF] shadow-[0_0_15px_rgba(212,175,55,0.35)] animate-pulse'
             : 'border-[#D4AF37]/50 bg-black/85 hover:bg-[#D4AF37]/20 text-[#D4AF37] hover:text-[#F5E6BF] shadow-[0_0_10px_rgba(0,0,0,0.5)]'
         }`}
       >
@@ -304,11 +363,13 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
             <span className="w-[3px] bg-amber-300 rounded-full animate-[bounce_0.9s_infinite_0.4s] h-2.5"></span>
           </div>
         ) : (
-          <span className="text-sm group-hover:scale-110 transition-transform">🎵</span>
+          <span className="text-sm group-hover:scale-110 transition-transform">
+            {activeTrack ? '▶' : '🎵'}
+          </span>
         )}
 
         <span className="text-xs font-semibold tracking-wide">
-          {t('musicBtn')}
+          {isPlaying ? t('musicBtn') : activeTrack ? (language === 'vi' ? 'Bật nhạc' : 'Play Music') : t('musicBtn')}
         </span>
 
         {/* Small Active Dot */}
@@ -316,6 +377,17 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5"></span>
         )}
       </button>
+
+      {/* Floating Prompt for Mobile / Desktop browsers requiring tap to play */}
+      {showPlayBanner && activeTrack && (
+        <button
+          onClick={triggerPlayMusic}
+          className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-gradient-to-r from-[#D4AF37] via-[#F5E6BF] to-[#D4AF37] text-black font-semibold text-xs shadow-[0_0_25px_rgba(212,175,55,0.7)] animate-bounce cursor-pointer active:scale-95 transition-transform select-none whitespace-nowrap"
+        >
+          <span className="text-base animate-pulse">🎵</span>
+          <span>{language === 'vi' ? 'Chạm để bật nhạc Giáng Sinh 🔊' : 'Tap to play Christmas music 🔊'}</span>
+        </button>
+      )}
 
       {/* 
         Music Controller Dropdown Modal 
@@ -436,9 +508,10 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
             {activeTrack.type === 'youtube' && (
               <div className="relative w-full aspect-video rounded-md overflow-hidden border border-[#D4AF37]/40 shadow-md">
                 <iframe
-                  src={`https://www.youtube-nocookie.com/embed/${activeTrack.embedId}?autoplay=1&enablejsapi=1&playsinline=1`}
+                  ref={ytIframeRef}
+                  src={`https://www.youtube-nocookie.com/embed/${activeTrack.embedId}?autoplay=1&enablejsapi=1&playsinline=1&controls=1&rel=0&origin=${encodeURIComponent(typeof window !== 'undefined' ? window.location.origin : '')}`}
                   title="YouTube Player"
-                  allow="autoplay; encrypted-media; picture-in-picture"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
                   className="w-full h-full"
                 />

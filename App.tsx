@@ -71,7 +71,12 @@ function AppContent() {
       const urlParams = new URLSearchParams(window.location.search);
       const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
 
-      const shareId = urlParams.get('share') || hashParams.get('share');
+      const rawShareId = urlParams.get('share') || hashParams.get('share');
+      let shareId = rawShareId ? rawShareId.trim() : null;
+      if (shareId) {
+        // Strip accidental prefixes like "k/" or leading/trailing slashes
+        shareId = shareId.replace(/^[a-zA-Z]\//, '').replace(/^\/+/, '').replace(/[^a-zA-Z0-9_-]/g, '');
+      }
       const paramMask = urlParams.get('mask') || hashParams.get('mask');
       const paramMusic = urlParams.get('music') || hashParams.get('music');
       const isCustomTree = urlParams.get('tree') || hashParams.get('tree');
