@@ -1,4 +1,46 @@
-import { getR2Client, getR2BaseUrl, BUCKET_NAME, getCleanAccountId } from './_r2';
+import { AwsClient } from 'aws4fetch';
+
+function getCleanAccountId(): string {
+  let id = (process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  id = id.replace(/^["']|["']$/g, '').trim();
+  id = id.replace(/^https?:\/\//i, '');
+  if (id.includes('.r2.cloudflarestorage.com')) {
+    id = id.replace(/\.r2\.cloudflarestorage\.com.*$/i, '');
+  }
+  if (id.includes('dash.cloudflare.com/')) {
+    const match = id.match(/dash\.cloudflare\.com\/([a-zA-Z0-9]+)/);
+    if (match) id = match[1];
+  }
+  id = id.replace(/\/.*$/, '').trim();
+  id = id.replace(/[^a-zA-Z0-9]/g, '');
+  return id;
+}
+
+const BUCKET_NAME = (process.env.CLOUDFLARE_R2_BUCKET || 'christmas-tree-photos')
+  .trim().replace(/^["']|["']$/g, '').replace(/^\/+|\/+$/g, '');
+
+function getR2BaseUrl(): string {
+  const customEndpoint = (process.env.CLOUDFLARE_R2_ENDPOINT || process.env.R2_ENDPOINT || '').trim().replace(/^["']|["']$/g, '');
+  if (customEndpoint) {
+    try {
+      const withProto = customEndpoint.startsWith('http') ? customEndpoint : `https://${customEndpoint}`;
+      const parsed = new URL(withProto);
+      return parsed.origin;
+    } catch {
+      return customEndpoint.replace(/\/+$/, '');
+    }
+  }
+  const accountId = getCleanAccountId();
+  if (!accountId) throw new Error('Chưa thiết lập CLOUDFLARE_ACCOUNT_ID trên Vercel.');
+  return `https://${accountId}.r2.cloudflarestorage.com`;
+}
+
+function getR2Client(): AwsClient {
+  const accessKeyId = (process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '').trim().replace(/^["']|["']$/g, '');
+  const secretAccessKey = (process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '').trim().replace(/^["']|["']$/g, '');
+  if (!accessKeyId || !secretAccessKey) throw new Error('Chưa thiết lập CLOUDFLARE_R2_ACCESS_KEY_ID hoặc CLOUDFLARE_R2_SECRET_ACCESS_KEY trên Vercel.');
+  return new AwsClient({ accessKeyId, secretAccessKey, region: 'auto', service: 's3' });
+}
 
 const KV_NAMESPACE_ID = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
 const KV_API_TOKEN = (process.env.CLOUDFLARE_KV_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
@@ -69,7 +111,7 @@ export default async function handler(req: any, res: any) {
           const data = await kvResp.json();
           const imgData: string = data?.images?.[photoIdx];
           if (imgData && imgData.startsWith('data:image/')) {
-            const base64 = imgData.replace(/^data:image\/\w+;base64,/, '');
+            const base64 = imgData.replace(/^data:image\/[^;]+;base64,/, '');
             const buffer = Buffer.from(base64, 'base64');
             res.writeHead(200, {
               'Content-Type': 'image/jpeg',
