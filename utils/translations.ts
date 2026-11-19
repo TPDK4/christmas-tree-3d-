@@ -44,6 +44,12 @@ export interface Translations {
   guideTitle: string;
   guideOpenBtn: string;
   guideMinimizeBtn: string;
+  guideCloseBtn: string;
+  handSingleTitle: string;
+  treePinchOpen: string;
+  treePinchOpenDesc: string;
+  treePinchClose: string;
+  treePinchCloseDesc: string;
   handRightTree: string;
   handLeftPhoto: string;
   fistTree: string;
@@ -135,8 +141,14 @@ export const translations: Record<Language, Translations> = {
     guideTitle: 'Hướng Dẫn Cử Chỉ',
     guideOpenBtn: 'Hướng dẫn cử chỉ',
     guideMinimizeBtn: 'Thu nhỏ bảng',
-    handRightTree: 'Tay Phải • Cây Thông',
-    handLeftPhoto: 'Tay Trái • Mở Ảnh',
+    guideCloseBtn: 'Đã hiểu & Đóng',
+    handSingleTitle: 'Cử chỉ 1 tay (Tay nào cũng được)',
+    treePinchOpen: 'Tách ngón cái & trỏ',
+    treePinchOpenDesc: 'Bung tán cây thông',
+    treePinchClose: 'Chụm ngón cái & trỏ',
+    treePinchCloseDesc: 'Thu gọn cây thông',
+    handRightTree: 'Cây Thông (Pinch)',
+    handLeftPhoto: 'Mở Ảnh Kỷ Niệm',
     fistTree: 'Thu gọn cây',
     openTree: 'Bung tỏa cây',
     moveTree: 'Xoay góc nhìn 3D',
@@ -224,8 +236,14 @@ export const translations: Record<Language, Translations> = {
     guideTitle: 'Gesture Controls',
     guideOpenBtn: 'Gesture Guide',
     guideMinimizeBtn: 'Minimize Guide',
-    handRightTree: 'Right Hand • Christmas Tree',
-    handLeftPhoto: 'Left Hand • View Photos',
+    guideCloseBtn: 'Got it & Close',
+    handSingleTitle: 'Single Hand (Either Hand)',
+    treePinchOpen: 'Spread thumb & index',
+    treePinchOpenDesc: 'Unleash Christmas tree',
+    treePinchClose: 'Pinch thumb & index',
+    treePinchCloseDesc: 'Form Christmas tree',
+    handRightTree: 'Tree Controls (Pinch)',
+    handLeftPhoto: 'Open Memories',
     fistTree: 'Collapse tree',
     openTree: 'Unleash chaos',
     moveTree: 'Rotate 3D view',
