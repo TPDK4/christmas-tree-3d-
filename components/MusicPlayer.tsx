@@ -147,8 +147,37 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
 
   // Sync with track prop if provided (e.g. from shared link or parent)
   useEffect(() => {
-    if (track !== undefined) {
+    if (track) {
       setActiveTrack(track);
+      setIsPlaying(true);
+
+      // Direct audio: Start playback immediately, handling browser Autoplay Policy
+      if (track.type === 'audio') {
+        const tryPlayAudio = () => {
+          if (audioRef.current) {
+            audioRef.current.src = track.url;
+            audioRef.current.play().catch((err) => {
+              console.warn('Browser blocked autoplay on load, waiting for first user gesture:', err);
+              // Listen for first user tap/click anywhere to start playing audio
+              const startOnInteraction = () => {
+                if (audioRef.current) {
+                  audioRef.current.play().catch(console.warn);
+                }
+              };
+              window.addEventListener('click', startOnInteraction, { once: true });
+              window.addEventListener('touchstart', startOnInteraction, { once: true });
+              window.addEventListener('pointerdown', startOnInteraction, { once: true });
+            });
+          }
+        };
+        setTimeout(tryPlayAudio, 150);
+      }
+    } else if (track === null) {
+      setActiveTrack(null);
+      setIsPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
     }
   }, [track]);
 

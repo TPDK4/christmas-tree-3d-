@@ -9,7 +9,7 @@ function generateShareId(): string {
 }
 
 function parseBase64Image(base64Data: string): Buffer {
-  const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+  const base64 = base64Data.replace(/^data:image\/[^;]+;base64,/, '');
   return Buffer.from(base64, 'base64');
 }
 
@@ -23,7 +23,8 @@ async function storeInKV(shareId: string, payload: object, cleanAccountId: strin
     }
   );
   if (!response.ok) {
-    throw new Error(`KV store failed: ${response.statusText}`);
+    const errText = await response.text().catch(() => '');
+    throw new Error(`KV store failed: ${response.statusText} ${errText}`);
   }
 }
 
@@ -55,49 +56,78 @@ export default async function handler(req: any, res: any) {
     if (publicBase && !publicBase.startsWith('http')) publicBase = `https://${publicBase}`;
 
     const cleanAccountId = getCleanAccountId();
+    let uploadSuccess = false;
 
-    // Upload all photos in parallel to R2
-    const r2 = getR2Client();
-    const baseUrl = getR2BaseUrl();
+    // Attempt 1: Upload to Cloudflare R2
+    try {
+      const r2 = getR2Client();
+      const baseUrl = getR2BaseUrl();
 
-    const imageUrls: string[] = await Promise.all(
-      images.map(async (imageData: string, i: number) => {
-        const bytes = parseBase64Image(imageData);
-        const filename = `${shareId}/${i}.jpg`;
-        const url = `${baseUrl}/${BUCKET_NAME}/${filename}`;
+      const imageUrls: string[] = await Promise.all(
+        images.map(async (imageData: string, i: number) => {
+          const bytes = parseBase64Image(imageData);
+          const filename = `${shareId}/${i}.jpg`;
+          const url = `${baseUrl}/${BUCKET_NAME}/${filename}`;
 
-        const uploadResp = await r2.fetch(url, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'image/jpeg' },
-          body: bytes,
-        });
+          const uploadResp = await r2.fetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'image/jpeg' },
+            body: bytes,
+          });
 
-        if (!uploadResp.ok) {
-          const errText = await uploadResp.text().catch(() => '');
-          throw new Error(`R2 upload failed for image ${i}: ${uploadResp.status} ${errText.slice(0, 200)}`);
+          if (!uploadResp.ok) {
+            const errText = await uploadResp.text().catch(() => '');
+            throw new Error(`R2 upload failed for image ${i}: HTTP ${uploadResp.status} ${errText.slice(0, 150)}`);
+          }
+
+          return publicBase
+            ? `${publicBase}/${filename}`
+            : `/api/photo?key=${encodeURIComponent(filename)}`;
+        })
+      );
+
+      // Store meta.json in R2
+      const shareMetadata = { images: imageUrls, music: music || null, mask: mask || 'none', createdAt: Date.now() };
+      const metaUrl = `${baseUrl}/${BUCKET_NAME}/${shareId}/meta.json`;
+      const metaResp = await r2.fetch(metaUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(shareMetadata),
+      });
+
+      if (!metaResp.ok) {
+        const errText = await metaResp.text().catch(() => '');
+        throw new Error(`Failed to save meta.json to R2: HTTP ${metaResp.status} ${errText.slice(0, 150)}`);
+      }
+
+      uploadSuccess = true;
+
+      // Optional KV backup
+      if (KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId) {
+        try { await storeInKV(shareId, shareMetadata, cleanAccountId); } catch (kvErr) { console.warn('KV backup failed:', kvErr); }
+      }
+    } catch (r2Error: any) {
+      console.warn('R2 upload attempt failed:', r2Error?.message || r2Error);
+
+      // Attempt 2: Fallback to Cloudflare KV if configured (stores base64 images directly)
+      if (KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId) {
+        try {
+          console.info('Attempting fallback to Cloudflare KV...');
+          const kvMetadata = {
+            images: images,
+            music: music || null,
+            mask: mask || 'none',
+            createdAt: Date.now(),
+          };
+          await storeInKV(shareId, kvMetadata, cleanAccountId);
+          uploadSuccess = true;
+        } catch (kvErr: any) {
+          console.error('KV fallback also failed:', kvErr);
+          throw r2Error;
         }
-
-        return publicBase
-          ? `${publicBase}/${filename}`
-          : `/api/photo?key=${encodeURIComponent(filename)}`;
-      })
-    );
-
-    // Store meta.json in R2
-    const shareMetadata = { images: imageUrls, music: music || null, mask: mask || 'none', createdAt: Date.now() };
-    const metaUrl = `${baseUrl}/${BUCKET_NAME}/${shareId}/meta.json`;
-    const metaResp = await r2.fetch(metaUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(shareMetadata),
-    });
-    if (!metaResp.ok) {
-      console.warn('meta.json upload failed:', metaResp.status);
-    }
-
-    // Optional KV backup
-    if (KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId) {
-      try { await storeInKV(shareId, shareMetadata, cleanAccountId); } catch (kvErr) { console.warn('KV backup failed:', kvErr); }
+      } else {
+        throw r2Error;
+      }
     }
 
     let shareLink = `${origin}/?share=${shareId}`;
@@ -109,7 +139,11 @@ export default async function handler(req: any, res: any) {
     console.error('Upload error:', error);
     let msg = error?.message || 'Có lỗi xảy ra khi tải ảnh lên.';
     if (msg.includes('EPROTO') || msg.includes('alert number 40') || msg.includes('handshake failure')) {
-      msg = 'Lỗi SSL kết nối tới Cloudflare R2. Vui lòng kiểm tra biến CLOUDFLARE_ACCOUNT_ID (chỉ điền mã ID, không điền URL đầy đủ).';
+      msg = 'Lỗi SSL kết nối tới Cloudflare R2 (Alert 40). Vui lòng kiểm tra biến CLOUDFLARE_ACCOUNT_ID trên Vercel (chỉ điền mã 32 ký tự hex, không điền cả đường dẫn https://).';
+    } else if (msg.includes('403') || msg.includes('Access Denied')) {
+      msg = 'Lỗi quyền truy cập R2 (HTTP 403 Forbidden). Vui lòng kiểm tra R2 API Token trên Cloudflare có quyền "Object Read & Write" chưa.';
+    } else if (msg.includes('404') || msg.includes('NoSuchBucket')) {
+      msg = `Bucket R2 không tồn tại (HTTP 404). Vui lòng tạo bucket "${BUCKET_NAME}" trên Cloudflare hoặc đặt đúng biến CLOUDFLARE_R2_BUCKET trên Vercel.`;
     }
     return res.status(500).json({ error: 'Upload failed', message: msg });
   }

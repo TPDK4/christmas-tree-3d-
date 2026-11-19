@@ -84,7 +84,30 @@ const PolaroidItem: React.FC<{ data: PhotoData; mode: TreeMode; index: number; i
       // Case A: data: URI (base64) - instantly loaded via Image with zero network/CORS issues
       if (targetUrl.startsWith('data:')) {
         const img = new Image();
-        img.onload = () => applyImageToTexture(img);
+        img.onload = () => {
+          if (isCancelled) return;
+          // In WebKit (iOS Safari / Messenger), SVG images require 2D canvas rasterization for WebGL textures
+          if (targetUrl.startsWith('data:image/svg+xml')) {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width || 600;
+              canvas.height = img.height || 600;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.colorSpace = THREE.SRGBColorSpace;
+                tex.needsUpdate = true;
+                setTexture(tex);
+                setError(false);
+                return;
+              }
+            } catch (canvasErr) {
+              console.warn('Canvas rasterization error for SVG:', canvasErr);
+            }
+          }
+          applyImageToTexture(img);
+        };
         img.onerror = () => {
           if (!isCancelled) setError(true);
         };
