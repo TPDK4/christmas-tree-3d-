@@ -130,27 +130,27 @@ const photo5Svg = `<g transform="scale(3)">
 
 export const DEFAULT_CHRISTMAS_PHOTOS: PhotoInfo[] = [
   {
-    url: createSvgCard(['#061a12', '#0f3826'], photo1Svg, 'MERRY CHRISTMAS', 'Warm Holiday Wishes'),
+    url: '/photos/1.jpg',
     title: 'Merry Christmas',
     desc: 'Merry Christmas'
   },
   {
-    url: createSvgCard(['#1a0f06', '#3b2308'], photo2Svg, 'MERRY CHRISTMAS', 'Jingle Bells & Joy'),
+    url: '/photos/2.jpg',
     title: 'Merry Christmas',
     desc: 'Merry Christmas'
   },
   {
-    url: createSvgCard(['#0c142b', '#172554'], photo3Svg, 'MERRY CHRISTMAS', 'Peace & Warmth'),
+    url: '/photos/3.jpg',
     title: 'Merry Christmas',
     desc: 'Merry Christmas'
   },
   {
-    url: createSvgCard(['#1e102e', '#3b125e'], photo4Svg, 'MERRY CHRISTMAS', 'Magic of Christmas'),
+    url: '/photos/4.jpg',
     title: 'Merry Christmas',
     desc: 'Merry Christmas'
   },
   {
-    url: createSvgCard(['#260811', '#540c21'], photo5Svg, 'MERRY CHRISTMAS', 'Love & Happiness'),
+    url: '/photos/5.jpg',
     title: 'Merry Christmas',
     desc: 'Merry Christmas'
   }
@@ -158,13 +158,14 @@ export const DEFAULT_CHRISTMAS_PHOTOS: PhotoInfo[] = [
 
 /**
  * Get photo info for index 1..5:
- * Returns the uploaded photo at slot (index - 1), or empty url if not uploaded.
+ * Returns the photo at slot (index - 1).
  */
 export function getPhotoByIndex(index: number, uploadedPhotos: string[]): PhotoInfo {
   const zeroIndex = index - 1;
-  if (uploadedPhotos && uploadedPhotos[zeroIndex]) {
+  const list = (uploadedPhotos && uploadedPhotos.length > 0) ? uploadedPhotos : DEFAULT_CHRISTMAS_PHOTOS.map(p => p.url);
+  if (list[zeroIndex]) {
     return {
-      url: uploadedPhotos[zeroIndex],
+      url: list[zeroIndex],
       title: 'Merry Christmas',
       desc: 'Merry Christmas'
     };

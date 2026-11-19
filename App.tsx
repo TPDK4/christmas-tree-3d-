@@ -49,11 +49,19 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
   }
 }
 
+const DEFAULT_TREE_PHOTOS = [
+  '/photos/1.jpg',
+  '/photos/2.jpg',
+  '/photos/3.jpg',
+  '/photos/4.jpg',
+  '/photos/5.jpg'
+];
+
 function AppContent() {
   const { t } = useLanguage();
   const [mode, setMode] = useState<TreeMode>(TreeMode.FORMED);
   const [handPosition, setHandPosition] = useState<{ x: number; y: number; detected: boolean }>({ x: 0.5, y: 0.5, detected: false });
-  const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
+  const [uploadedPhotos, setUploadedPhotos] = useState<string[]>(DEFAULT_TREE_PHOTOS);
   const [isLoadingShare, setIsLoadingShare] = useState(false);
   const [isSharedView, setIsSharedView] = useState(false);
   const [twoHandsDetected, setTwoHandsDetected] = useState(false);
@@ -65,113 +73,23 @@ function AppContent() {
   const [currentMask, setCurrentMask] = useState<MaskType>('none');
   const [currentMusic, setCurrentMusic] = useState<ActiveTrack | null>(null);
 
-  // Check for share parameters in URL on mount
+  // Check for parameters in URL on mount
   useEffect(() => {
     const loadSharedState = async () => {
       const urlParams = new URLSearchParams(window.location.search);
       const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
 
-      const rawShareId = urlParams.get('share') || hashParams.get('share');
-      let shareId = rawShareId ? rawShareId.trim() : null;
-      if (shareId) {
-        // Strip accidental prefixes like "k/" or leading hyphens/slashes
-        shareId = shareId.replace(/^[a-zA-Z]\//, '').replace(/^[-/]+/, '').replace(/[^a-zA-Z0-9_-]/g, '');
-      }
-      const paramImgs = urlParams.get('imgs') || hashParams.get('imgs');
       const paramMask = urlParams.get('mask') || hashParams.get('mask');
       const paramMusic = urlParams.get('music') || hashParams.get('music');
-      const isCustomTree = urlParams.get('tree') || hashParams.get('tree');
 
-      if (shareId || paramImgs || paramMask || paramMusic || isCustomTree) {
-        setIsSharedView(true);
-      }
-
-      // 0. Direct URL parameter for Photos (Catbox CDN codes or full image URLs)
-      if (paramImgs) {
-        try {
-          const rawImgs = decodeURIComponent(paramImgs).split(',').map(s => s.trim()).filter(Boolean);
-          const resolvedUrls = rawImgs.map(s => {
-            if (s.startsWith('http://') || s.startsWith('https://')) return s;
-            return `https://files.catbox.moe/${s}.jpg`;
-          });
-          if (resolvedUrls.length > 0) {
-            setUploadedPhotos(resolvedUrls);
-          }
-        } catch (e) {
-          console.warn('Error parsing imgs param:', e);
-        }
-      }
-
-      // 1. Direct URL parameter for AR Face filter
       if (paramMask) {
         setCurrentMask(paramMask as MaskType);
       }
 
-      // 2. Direct URL parameter for Music
       if (paramMusic) {
         const parsed = parseMusicUrl(paramMusic);
         if (parsed) {
           setCurrentMusic(parsed);
-        }
-      }
-
-      // 2b. Clean tree without default photos
-      if (isCustomTree) {
-        setUploadedPhotos([]);
-      }
-
-      // 3. Share ID via Cloudflare KV API or localStorage fallback
-      if (shareId) {
-        setIsLoadingShare(true);
-
-        try {
-          // Try API first (Cloudflare KV on Vercel)
-          try {
-            const response = await fetch(`/api/share?id=${shareId}`);
-            const data = await response.json();
-
-            if (response.ok && data.success) {
-              if (data.images && data.images.length > 0) {
-                // Normalize all images to relative /api/photo to eliminate any cross-domain preview link mismatch
-                const normalizedImages = data.images.map((imgUrl: string) => {
-                  if (typeof imgUrl === 'string' && imgUrl.includes('/api/photo')) {
-                    const match = imgUrl.match(/key=([^&]+)/);
-                    if (match) return `/api/photo?key=${match[1]}`;
-                  }
-                  return imgUrl;
-                });
-                setUploadedPhotos(normalizedImages);
-              }
-              if (data.mask && !paramMask) {
-                setCurrentMask(data.mask as MaskType);
-              }
-              if (data.music && !paramMusic) {
-                setCurrentMusic(data.music);
-              }
-              return;
-            }
-          } catch (apiError) {
-            console.log('API not available, trying localStorage fallback');
-          }
-
-          // Fallback to localStorage: Look for share_${shareId} or my_christmas_tree
-          const shareDataStr = localStorage.getItem(`share_${shareId}`) || localStorage.getItem('my_christmas_tree');
-          if (shareDataStr) {
-            const shareData = JSON.parse(shareDataStr);
-            if (shareData.images && shareData.images.length > 0) {
-              setUploadedPhotos((prev) => (prev.length > 0 ? prev : shareData.images));
-            }
-            if (shareData.mask && !paramMask) {
-              setCurrentMask(shareData.mask as MaskType);
-            }
-            if (shareData.music && !paramMusic) {
-              setCurrentMusic(shareData.music);
-            }
-          }
-        } catch (error) {
-          console.error('Error loading shared data:', error);
-        } finally {
-          setIsLoadingShare(false);
         }
       }
     };
