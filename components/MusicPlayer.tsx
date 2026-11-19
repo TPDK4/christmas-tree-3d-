@@ -185,14 +185,12 @@ export const parseMusicUrl = (rawUrl: string): ActiveTrack | null => {
 };
 
 export const getYouTubeEmbedUrl = (track: ActiveTrack): string => {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const params = new URLSearchParams();
   params.set('autoplay', '1');
   params.set('enablejsapi', '1');
   params.set('playsinline', '1');
   params.set('controls', '1');
   params.set('rel', '0');
-  if (origin) params.set('origin', origin);
 
   // If YouTube playlist is provided
   if (track.playlistId) {
@@ -209,7 +207,7 @@ export const getYouTubeEmbedUrl = (track: ActiveTrack): string => {
   }
 
   const baseId = track.embedId || 'videoseries';
-  return `https://www.youtube.com/embed/${baseId}?${params.toString()}`;
+  return `https://www.youtube-nocookie.com/embed/${baseId}?${params.toString()}`;
 };
 
 export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }) => {
@@ -354,16 +352,15 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
     setErrorMsg('');
     onTrackChange?.(selected);
 
-    // If direct audio, play native element
+    // If direct audio, play native element synchronously within user gesture
     if (selected.type === 'audio') {
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.src = selected.url;
-          audioRef.current.play().catch((err) => {
-            console.warn('Audio play autoplay error:', err);
-          });
-        }
-      }, 50);
+      if (audioRef.current) {
+        audioRef.current.src = selected.url;
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch((err) => {
+          console.warn('Audio play autoplay error:', err);
+        });
+      }
     } else {
       // Pause native audio if switching to iframe embed
       if (audioRef.current) {
