@@ -87,19 +87,31 @@ function parseBase64Image(base64Data: string): Buffer {
 }
 
 async function uploadToCatbox(base64Data: string): Promise<string> {
+  const boundary = `----CatboxBoundary${Date.now()}${Math.random().toString(36).substring(2)}`;
   const base64 = base64Data.replace(/^data:image\/[^;]+;base64,/, '');
-  const buffer = Buffer.from(base64, 'base64');
-  const blob = new Blob([buffer], { type: 'image/jpeg' });
-  const form = new FormData();
-  form.append('reqtype', 'fileupload');
-  form.append('fileToUpload', blob, 'photo.jpg');
+  const imgBuf = Buffer.from(base64, 'base64');
+  const head = Buffer.from(
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="reqtype"\r\n\r\n` +
+    `fileupload\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="fileToUpload"; filename="photo.jpg"\r\n` +
+    `Content-Type: image/jpeg\r\n\r\n`
+  );
+  const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+  const body = Buffer.concat([head, imgBuf, tail]);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
     const res = await fetch('https://catbox.moe/user/api.php', {
       method: 'POST',
-      body: form,
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': String(body.length),
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+      body: body,
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`Catbox HTTP ${res.status}`);

@@ -118,6 +118,19 @@ export default async function handler(req: any, res: any) {
           r2TestResult = `ERROR: ${err.message}`;
         }
       }
+      let catboxTest = 'Not tested';
+      try {
+        const b = Buffer.from('test');
+        const form = new FormData();
+        form.append('reqtype', 'fileupload');
+        form.append('fileToUpload', new Blob([b], { type: 'text/plain' }), 'test.txt');
+        const cRes = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: form });
+        const cText = await cRes.text();
+        catboxTest = `HTTP ${cRes.status}: ${cText.slice(0, 200)}`;
+      } catch (cErr: any) {
+        catboxTest = `ERROR: ${cErr.message}`;
+      }
+
       return res.status(200).json({
         status: 'ok',
         accountId: mask(cleanAccountId),
@@ -127,6 +140,7 @@ export default async function handler(req: any, res: any) {
         rawSecretVar1: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY_1 ? mask(process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY_1) : 'EMPTY',
         bucket: BUCKET_NAME,
         r2TestResult,
+        catboxTest,
       });
     }
 
