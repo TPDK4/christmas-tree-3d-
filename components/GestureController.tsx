@@ -95,6 +95,34 @@ export function countExtendedFingers(landmarks: any[]): FingerDetectionResult {
   };
 }
 
+/**
+ * Accurately determines whether a hand is physically Right or Left in 3D.
+ */
+export function determineHandedness(landmarks: any[], mpCategory?: string): 'Right' | 'Left' {
+  if (mpCategory === 'Right') return 'Right';
+  if (mpCategory === 'Left') return 'Left';
+
+  if (landmarks && landmarks.length >= 21) {
+    const wrist = landmarks[0];
+    const middle = landmarks[9];
+    const index = landmarks[5];
+    const pinky = landmarks[17];
+    const thumb = landmarks[2];
+
+    const u = [middle.x - wrist.x, middle.y - wrist.y, (middle.z || 0) - (wrist.z || 0)];
+    const v = [pinky.x - index.x, pinky.y - index.y, (pinky.z || 0) - (index.z || 0)];
+    const t = [thumb.x - wrist.x, thumb.y - wrist.y, (thumb.z || 0) - (wrist.z || 0)];
+
+    const cx = u[1] * v[2] - u[2] * v[1];
+    const cy = u[2] * v[0] - u[0] * v[2];
+    const cz = u[0] * v[1] - u[1] * v[0];
+
+    const det = cx * t[0] + cy * t[1] + cz * t[2];
+    return det > 0 ? 'Right' : 'Left';
+  }
+  return 'Right';
+}
+
 export interface AnalyzedGesture {
   isPinchClose: boolean;
   isPinchOpen: boolean;
@@ -102,13 +130,9 @@ export interface AnalyzedGesture {
 }
 
 /**
- * Classifies the user's hand gesture with absolute mathematical clarity.
- * Completely eliminates conflicts:
- * - Spreading thumb + index is strictly recognized as Pinch Open (Tree Chaos), NEVER Photo 2.
- * - Photo 2 strictly requires Peace sign ✌️ (index + middle open, thumb folded).
- * - Photo 5 (all 5 fingers open) strictly opens photo 5, and NEVER triggers Tree Chaos.
+ * Mobile single-hand gesture classifier.
  */
-export function analyzeHandLandmarks(landmarks: any[]): AnalyzedGesture {
+export function analyzeSingleHandGestures(landmarks: any[]): AnalyzedGesture {
   if (!landmarks || landmarks.length < 21) {
     return { isPinchClose: false, isPinchOpen: false, photoSelect: null };
   }
@@ -129,7 +153,6 @@ export function analyzeHandLandmarks(landmarks: any[]): AnalyzedGesture {
   const isPinchClose = pinchRatio < 0.35;
 
   // 2. PINCH OPEN (Tách ngón cái & trỏ ra để bung tán cây thông)
-  // Thumb and Index must be open, pinchRatio wide, and NOT all 5 fingers open
   const isPinchOpen =
     pinchRatio > 0.82 &&
     fingers.thumb &&
@@ -139,28 +162,17 @@ export function analyzeHandLandmarks(landmarks: any[]): AnalyzedGesture {
   // 3. PHOTO SELECTION (1 - 5, or 0 for close)
   let photoSelect: number | null = null;
 
-  // Photo 5: All 5 fingers extended
   if (count === 5 || (fingers.thumb && fingers.index && fingers.middle && fingers.ring && fingers.pinky)) {
     photoSelect = 5;
-  }
-  // Photo 4: 4 fingers (Index, Middle, Ring, Pinky), Thumb folded
-  else if (fingers.index && fingers.middle && fingers.ring && fingers.pinky && !fingers.thumb) {
+  } else if (fingers.index && fingers.middle && fingers.ring && fingers.pinky && !fingers.thumb) {
     photoSelect = 4;
-  }
-  // Photo 3: 3 fingers (Index, Middle, Ring), Pinky folded
-  else if (fingers.index && fingers.middle && fingers.ring && !fingers.pinky) {
+  } else if (fingers.index && fingers.middle && fingers.ring && !fingers.pinky) {
     photoSelect = 3;
-  }
-  // Photo 2: Peace sign ✌️ (Index + Middle extended, Thumb folded, Ring & Pinky folded)
-  else if (fingers.index && fingers.middle && !fingers.thumb && !fingers.ring && !fingers.pinky) {
-    photoSelect = 2;
-  }
-  // Photo 1: Index finger extended ONLY (Thumb, Middle, Ring, Pinky folded)
-  else if (fingers.index && !fingers.middle && !fingers.ring && !fingers.pinky && !fingers.thumb) {
+  } else if (fingers.index && fingers.middle && !fingers.thumb && !fingers.ring && !fingers.pinky) {
+    photoSelect = 2; // Peace sign ✌️
+  } else if (fingers.index && !fingers.middle && !fingers.ring && !fingers.pinky && !fingers.thumb) {
     photoSelect = 1;
-  }
-  // Clenched fist (all fingers folded) -> close photo
-  else if (count === 0 || (!fingers.index && !fingers.middle && !fingers.ring && !fingers.pinky)) {
+  } else if (count === 0 || (!fingers.index && !fingers.middle && !fingers.ring && !fingers.pinky)) {
     photoSelect = 0;
   }
 
@@ -433,69 +445,205 @@ export const GestureController: React.FC<GestureControllerProps> = ({
             onTwoHandsDetectedRef.current(numHands >= 2);
           }
 
-          // Draw skeleton on desktop camera box
-          if (!isMobileRef.current && canvasRef.current && videoRef.current) {
-            const canvas = canvasRef.current;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              canvas.width = videoRef.current.videoWidth;
-              canvas.height = videoRef.current.videoHeight;
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              result.landmarks.forEach((lms, idx) => {
-                const lineColor = idx === 0 ? '#D4AF37' : '#38BDF8';
-                const pointColor = idx === 0 ? '#10B981' : '#F43F5E';
-                drawSingleHandSkeleton(lms, ctx, canvas, lineColor, pointColor);
-              });
-            }
-          }
+          // ==========================================
+          // 1. MOBILE GESTURE PROCESSING (Single Hand)
+          // ==========================================
+          if (isMobileRef.current) {
+            const primaryLm = result.landmarks[0];
+            const { isPinchClose, isPinchOpen, photoSelect } = analyzeSingleHandGestures(primaryLm);
 
-          // Perform unified, conflict-free gesture analysis on primary hand
-          const primaryLm = result.landmarks[0];
-          const { isPinchClose, isPinchOpen, photoSelect } = analyzeHandLandmarks(primaryLm);
-
-          // 1. Process Tree Mode Latching (Pinch Close / Pinch Open)
-          if (isPinchClose) {
-            pinchCloseFramesRef.current++;
-            pinchOpenFramesRef.current = 0;
-            if (pinchCloseFramesRef.current >= CONFIRM_THRESHOLD) {
-              if (lastModeRef.current !== TreeMode.FORMED) {
-                lastModeRef.current = TreeMode.FORMED;
-                onModeChangeRef.current(TreeMode.FORMED);
-              }
-            }
-          } else if (isPinchOpen) {
-            pinchOpenFramesRef.current++;
-            pinchCloseFramesRef.current = 0;
-            if (pinchOpenFramesRef.current >= CONFIRM_THRESHOLD) {
-              if (lastModeRef.current !== TreeMode.CHAOS) {
-                lastModeRef.current = TreeMode.CHAOS;
-                onModeChangeRef.current(TreeMode.CHAOS);
-              }
-            }
-          } else {
-            pinchCloseFramesRef.current = 0;
-            pinchOpenFramesRef.current = 0;
-          }
-
-          // 2. Process Photo Selection (1..5 or 0 for close)
-          if (candidateFingersRef.current === photoSelect) {
-            candidateFramesRef.current++;
-          } else {
-            candidateFingersRef.current = photoSelect;
-            candidateFramesRef.current = 1;
-          }
-
-          if (candidateFramesRef.current >= PHOTO_CONFIRM_THRESHOLD) {
-            if (photoSelect !== null && photoSelect >= 1 && photoSelect <= 5) {
-              if (lastConfirmedPhotoRef.current !== photoSelect) {
-                lastConfirmedPhotoRef.current = photoSelect;
-                if (onPhotoFingerSelectRef.current) {
-                  onPhotoFingerSelectRef.current(photoSelect);
+            if (isPinchClose) {
+              pinchCloseFramesRef.current++;
+              pinchOpenFramesRef.current = 0;
+              if (pinchCloseFramesRef.current >= CONFIRM_THRESHOLD) {
+                if (lastModeRef.current !== TreeMode.FORMED) {
+                  lastModeRef.current = TreeMode.FORMED;
+                  onModeChangeRef.current(TreeMode.FORMED);
                 }
               }
-            } else if (photoSelect === 0) {
-              // Fist closes active photo
+            } else if (isPinchOpen) {
+              pinchOpenFramesRef.current++;
+              pinchCloseFramesRef.current = 0;
+              if (pinchOpenFramesRef.current >= CONFIRM_THRESHOLD) {
+                if (lastModeRef.current !== TreeMode.CHAOS) {
+                  lastModeRef.current = TreeMode.CHAOS;
+                  onModeChangeRef.current(TreeMode.CHAOS);
+                }
+              }
+            } else {
+              pinchCloseFramesRef.current = 0;
+              pinchOpenFramesRef.current = 0;
+            }
+
+            if (candidateFingersRef.current === photoSelect) {
+              candidateFramesRef.current++;
+            } else {
+              candidateFingersRef.current = photoSelect;
+              candidateFramesRef.current = 1;
+            }
+
+            if (candidateFramesRef.current >= PHOTO_CONFIRM_THRESHOLD) {
+              if (photoSelect !== null && photoSelect >= 1 && photoSelect <= 5) {
+                if (lastConfirmedPhotoRef.current !== photoSelect) {
+                  lastConfirmedPhotoRef.current = photoSelect;
+                  if (onPhotoFingerSelectRef.current) {
+                    onPhotoFingerSelectRef.current(photoSelect);
+                  }
+                }
+              } else if (photoSelect === 0) {
+                if (lastConfirmedPhotoRef.current !== null) {
+                  lastConfirmedPhotoRef.current = null;
+                  if (onPhotoFingerSelectRef.current) {
+                    onPhotoFingerSelectRef.current(null);
+                  }
+                }
+              }
+            }
+          }
+          // ==========================================
+          // 2. DESKTOP GESTURE PROCESSING (Strict 2-Hand Roles)
+          // ==========================================
+          else {
+            const hands = result.landmarks.map((lm, idx) => {
+              const palmX = (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5;
+              const palmY = (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5;
+              const screenX = 1 - palmX; // 0 = left, 1 = right
+              const mpCategory = result.handednesses?.[idx]?.[0]?.categoryName;
+              const geomHand = determineHandedness(lm, mpCategory);
+
+              return {
+                landmarks: lm,
+                palmX,
+                palmY,
+                screenX,
+                geomHand,
+              };
+            });
+
+            let treeHandLm: any[] | null = null;
+            let photoHandLm: any[] | null = null;
+
+            if (hands.length >= 2) {
+              // 2 hands: hand on the right of screen is Right Hand (Tree), left is Left Hand (Photos)
+              const sorted = [...hands].sort((a, b) => b.screenX - a.screenX);
+              treeHandLm = sorted[0].landmarks;
+              photoHandLm = sorted[1].landmarks;
+            } else {
+              // 1 hand on desktop: Determine if it is Right Hand or Left Hand
+              const single = hands[0];
+              const isRight = single.screenX >= 0.5 || (single.geomHand === 'Right' && single.screenX > 0.38);
+
+              if (isRight) {
+                // TAY PHẢI: Chuyên CÂY THÔNG!
+                treeHandLm = single.landmarks;
+                photoHandLm = null; // Tuyệt đối không mở ảnh!
+              } else {
+                // TAY TRÁI: Chuyên CHỌN ẢNH!
+                photoHandLm = single.landmarks;
+                treeHandLm = null; // Tuyệt đối không chạm cây!
+              }
+            }
+
+            // Draw skeletons with distinct colors:
+            // Tree Hand (Right) = Gold lines + Green points
+            // Photo Hand (Left) = Sky Blue lines + Pink points
+            if (canvasRef.current && videoRef.current) {
+              const canvas = canvasRef.current;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                canvas.width = videoRef.current.videoWidth;
+                canvas.height = videoRef.current.videoHeight;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                if (treeHandLm) {
+                  drawSingleHandSkeleton(treeHandLm, ctx, canvas, '#D4AF37', '#10B981');
+                }
+                if (photoHandLm) {
+                  drawSingleHandSkeleton(photoHandLm, ctx, canvas, '#38BDF8', '#F43F5E');
+                }
+              }
+            }
+
+            // Process Tree Hand (TAY PHẢI • CÂY THÔNG)
+            if (treeHandLm) {
+              const { count } = countExtendedFingers(treeHandLm);
+              const handScale = Math.hypot(treeHandLm[9].x - treeHandLm[0].x, treeHandLm[9].y - treeHandLm[0].y) || 0.2;
+              const pinchRatio = Math.hypot(treeHandLm[4].x - treeHandLm[8].x, treeHandLm[4].y - treeHandLm[8].y) / handScale;
+
+              // Nắm tay (<=1 ngón) hoặc chụm ngón cái-trỏ -> Thu cây
+              if (count <= 1 || pinchRatio < 0.35) {
+                pinchCloseFramesRef.current++;
+                pinchOpenFramesRef.current = 0;
+                if (pinchCloseFramesRef.current >= CONFIRM_THRESHOLD) {
+                  if (lastModeRef.current !== TreeMode.FORMED) {
+                    lastModeRef.current = TreeMode.FORMED;
+                    onModeChangeRef.current(TreeMode.FORMED);
+                  }
+                }
+              }
+              // Xòe tay (>=4 ngón) hoặc tách ngón cái-trỏ -> Bung cây
+              else if (count >= 4 || pinchRatio > 0.82) {
+                pinchOpenFramesRef.current++;
+                pinchCloseFramesRef.current = 0;
+                if (pinchOpenFramesRef.current >= CONFIRM_THRESHOLD) {
+                  if (lastModeRef.current !== TreeMode.CHAOS) {
+                    lastModeRef.current = TreeMode.CHAOS;
+                    onModeChangeRef.current(TreeMode.CHAOS);
+                  }
+                }
+              } else {
+                pinchCloseFramesRef.current = 0;
+                pinchOpenFramesRef.current = 0;
+              }
+            }
+
+            // Process Photo Hand (TAY TRÁI • MỞ ẢNH KỶ NIỆM)
+            if (photoHandLm) {
+              const { fingers, count } = countExtendedFingers(photoHandLm);
+
+              let photoSelect: number | null = null;
+              if (count === 5 || (fingers.thumb && fingers.index && fingers.middle && fingers.ring && fingers.pinky)) {
+                photoSelect = 5;
+              } else if (fingers.index && fingers.middle && fingers.ring && fingers.pinky && !fingers.thumb) {
+                photoSelect = 4;
+              } else if (fingers.index && fingers.middle && fingers.ring && !fingers.pinky) {
+                photoSelect = 3;
+              } else if (fingers.index && fingers.middle && !fingers.thumb && !fingers.ring && !fingers.pinky) {
+                photoSelect = 2; // Peace sign ✌️
+              } else if (fingers.index && !fingers.middle && !fingers.ring && !fingers.pinky && !fingers.thumb) {
+                photoSelect = 1;
+              } else if (count === 0) {
+                photoSelect = 0; // Fist closes photo
+              }
+
+              if (candidateFingersRef.current === photoSelect) {
+                candidateFramesRef.current++;
+              } else {
+                candidateFingersRef.current = photoSelect;
+                candidateFramesRef.current = 1;
+              }
+
+              if (candidateFramesRef.current >= PHOTO_CONFIRM_THRESHOLD) {
+                if (photoSelect !== null && photoSelect >= 1 && photoSelect <= 5) {
+                  if (lastConfirmedPhotoRef.current !== photoSelect) {
+                    lastConfirmedPhotoRef.current = photoSelect;
+                    if (onPhotoFingerSelectRef.current) {
+                      onPhotoFingerSelectRef.current(photoSelect);
+                    }
+                  }
+                } else if (photoSelect === 0) {
+                  if (lastConfirmedPhotoRef.current !== null) {
+                    lastConfirmedPhotoRef.current = null;
+                    if (onPhotoFingerSelectRef.current) {
+                      onPhotoFingerSelectRef.current(null);
+                    }
+                  }
+                }
+              }
+            } else {
+              // No left hand visible -> close active photo after delay
               if (lastConfirmedPhotoRef.current !== null) {
+                candidateFramesRef.current = 0;
+                candidateFingersRef.current = null;
                 lastConfirmedPhotoRef.current = null;
                 if (onPhotoFingerSelectRef.current) {
                   onPhotoFingerSelectRef.current(null);

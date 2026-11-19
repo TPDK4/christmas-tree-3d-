@@ -57,17 +57,6 @@ export const InstructionGuide: React.FC = () => {
                   {t('guideTitle')} {isMobile ? '(Mobile)' : '(Desktop Web)'}
                 </h2>
               </div>
-
-              {/* Close "✕" Button */}
-              <button
-                onClick={() => handleToggle(true)}
-                title={t('guideCloseBtn')}
-                className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/20 text-[#D4AF37] hover:text-white border border-[#D4AF37]/30 hover:border-[#D4AF37] transition-all cursor-pointer active:scale-90"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z" />
-                </svg>
-              </button>
             </div>
 
             {/* MOBILE INTERFACE GUIDE */}
@@ -186,33 +175,33 @@ export const InstructionGuide: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Desktop Section 1: Tree Gestures */}
+                {/* Desktop Section 1: Tree Gestures (Right Hand) */}
                 <div className="mb-3 p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/25">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-sm">🌲</span>
                     <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                      Điều khiển Cây Thông (Tay bất kỳ)
+                      {t('handRightDesktop')}
                     </span>
                   </div>
                   <div className="space-y-1.5 text-xs text-gray-200">
                     <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
-                      <span className="text-gray-300 font-medium">🤏 Chụm ngón cái & trỏ:</span>
+                      <span className="text-gray-300 font-medium">✊ Nắm bàn tay (hoặc chụm ngón cái-trỏ):</span>
                       <span className="font-semibold text-emerald-400">{t('formTree')}</span>
                     </div>
                     <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
-                      <span className="text-gray-300 font-medium">🖐 Tách ngón cái & trỏ:</span>
+                      <span className="text-gray-300 font-medium">🖐 Xòe bàn tay (hoặc tách ngón cái-trỏ):</span>
                       <span className="font-semibold text-amber-300">{t('unleashTree')}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Desktop Section 2: Photo Selection Gestures */}
+                {/* Desktop Section 2: Photo Selection Gestures (Left Hand) */}
                 <div className="mb-3 p-3 rounded-xl bg-sky-950/30 border border-sky-500/25">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm">📸</span>
                       <span className="text-xs font-bold text-sky-300 uppercase tracking-wider">
-                        Mở Ảnh Kỷ Niệm (1 – 5 ngón)
+                        {t('handLeftDesktop')}
                       </span>
                     </div>
                   </div>
