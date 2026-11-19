@@ -7,68 +7,12 @@ export interface MusicPlayerProps {
   onTrackChange?: (track: ActiveTrack | null) => void;
 }
 
-const PRESET_TRACKS = [
-  {
-    title: 'We Wish You A Merry Christmas',
-    artist: 'Traditional Holiday Carol',
-    type: 'audio' as const,
-    url: 'https://upload.wikimedia.org/wikipedia/commons/c/cb/We_Wish_You_a_Merry_Christmas.ogg',
-    emoji: '🎄',
-  },
-  {
-    title: 'Jingle Bell Rock',
-    artist: 'Bobby Helms (Classic)',
-    type: 'youtube' as const,
-    url: 'https://www.youtube.com/watch?v=R_vmuJ3974M',
-    embedId: 'R_vmuJ3974M',
-    emoji: '🔔',
-  },
-  {
-    title: 'Last Christmas',
-    artist: 'Wham! (Holiday Classic)',
-    type: 'youtube' as const,
-    url: 'https://www.youtube.com/watch?v=E8gmARGvPlI',
-    embedId: 'E8gmARGvPlI',
-    emoji: '❄️',
-  },
-  {
-    title: 'All I Want for Christmas Is You',
-    artist: 'Mariah Carey',
-    type: 'youtube' as const,
-    url: 'https://www.youtube.com/watch?v=yXQViqx6GMY',
-    embedId: 'yXQViqx6GMY',
-    emoji: '🌟',
-  },
-  {
-    title: 'Christmas Lofi / Holiday Coffee Shop',
-    artist: 'Cozy Chill Holiday Beats',
-    type: 'youtube' as const,
-    url: 'https://www.youtube.com/watch?v=lTRiuFIWV54',
-    embedId: 'lTRiuFIWV54',
-    emoji: '☕',
-  },
-  {
-    title: 'Jingle Bells (Orchestral)',
-    artist: 'Kevin MacLeod',
-    type: 'audio' as const,
-    url: 'https://upload.wikimedia.org/wikipedia/commons/e/e9/Jingle_Bells_-_Kevin_MacLeod.ogg',
-    emoji: '🎶',
-  },
-  {
-    title: 'Deck the Halls',
-    artist: 'Holiday Brass & Strings',
-    type: 'audio' as const,
-    url: 'https://upload.wikimedia.org/wikipedia/commons/4/4e/Deck_the_Halls_-_Kevin_MacLeod.ogg',
-    emoji: '🎺',
-  },
-  {
-    title: 'Silent Night',
-    artist: 'Acoustic Holiday Bells',
-    type: 'audio' as const,
-    url: 'https://upload.wikimedia.org/wikipedia/commons/7/7b/Silent_Night_-_Kevin_MacLeod.ogg',
-    emoji: '🕊️',
-  },
-];
+export const DEFAULT_CHRISTMAS_TRACK: ActiveTrack = {
+  type: 'youtube',
+  url: 'https://www.youtube.com/watch?v=iDXRKHY7mJA',
+  embedId: 'iDXRKHY7mJA',
+  title: 'Last Christmas',
+};
 
 // Parse URL from YouTube (Videos, Playlists, Live Streams, Timestamps), SoundCloud, Spotify, ZingMP3, or direct audio
 export const parseMusicUrl = (rawUrl: string): ActiveTrack | null => {
@@ -215,8 +159,8 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
   const [isOpen, setIsOpen] = useState(false);
   const [inputUrl, setInputUrl] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  // Default is strictly null - Music does NOT automatically turn on
-  const [activeTrack, setActiveTrack] = useState<ActiveTrack | null>(track || null);
+  // Default is 'Last Christmas'
+  const [activeTrack, setActiveTrack] = useState<ActiveTrack | null>(track || DEFAULT_CHRISTMAS_TRACK);
   const [isPlaying, setIsPlaying] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -672,60 +616,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({ track, onTrackChange }
             {t('musicNoTrack')}
           </div>
         )}
-
-        {/* Preset Holiday Carols Grid */}
-        <div>
-          <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#D4AF37] mb-2 flex items-center gap-1.5">
-            <span>{t('musicPresetsTitle')}</span>
-          </h4>
-
-          <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1">
-            {PRESET_TRACKS.map((preset, idx) => {
-              const isThisActive = activeTrack?.url === preset.url;
-              return (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    if (preset.type === 'youtube') {
-                      playTrack({
-                        type: 'youtube',
-                        url: preset.url,
-                        embedId: preset.embedId || '',
-                        title: preset.title,
-                      });
-                    } else {
-                      playTrack({
-                        type: 'audio',
-                        url: preset.url,
-                        embedId: '',
-                        title: preset.title,
-                      });
-                    }
-                  }}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-left transition-all cursor-pointer ${
-                    isThisActive
-                      ? 'border-[#D4AF37] bg-[#D4AF37]/30 text-white font-medium shadow-[0_0_10px_rgba(212,175,55,0.25)]'
-                      : 'border-[#D4AF37]/20 bg-white/5 hover:bg-white/10 hover:border-[#D4AF37]/50 text-gray-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm flex-shrink-0">{preset.emoji}</span>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs truncate">{preset.title}</span>
-                      <span className="text-[9px] text-[#D4AF37]/80 truncate">
-                        {preset.artist}
-                      </span>
-                    </div>
-                  </div>
-
-                  <span className="text-[10px] text-[#D4AF37] ml-2 flex-shrink-0">
-                    {isThisActive && isPlaying ? '▶' : '♫'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
       </div>
     </div>
   );

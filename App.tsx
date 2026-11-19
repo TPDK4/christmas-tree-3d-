@@ -7,7 +7,7 @@ import { UIOverlay } from './components/UIOverlay';
 import { GestureController } from './components/GestureController';
 import { InstructionGuide } from './components/InstructionGuide';
 import { TreeMode, ActiveTrack, MaskType } from './types';
-import { parseMusicUrl } from './components/MusicPlayer';
+import { parseMusicUrl, DEFAULT_CHRISTMAS_TRACK } from './components/MusicPlayer';
 import { getPhotoByIndex } from './utils/defaultPhotos';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 
@@ -69,9 +69,9 @@ function AppContent() {
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
   const [selectedPhotoTitle, setSelectedPhotoTitle] = useState<string>('');
 
-  // Default: AR Face filter is strictly 'none' (Original face) & Music does NOT auto-play
+  // Default: AR Face filter is 'none' & Default Music is 'Last Christmas'
   const [currentMask, setCurrentMask] = useState<MaskType>('none');
-  const [currentMusic, setCurrentMusic] = useState<ActiveTrack | null>(null);
+  const [currentMusic, setCurrentMusic] = useState<ActiveTrack | null>(DEFAULT_CHRISTMAS_TRACK);
 
   // Check for parameters in URL on mount
   useEffect(() => {
