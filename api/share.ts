@@ -1,7 +1,13 @@
 import { AwsClient } from 'aws4fetch';
 
 function getCleanAccountId(): string {
-  let id = (process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || process.env.ACCOUNT_ID || '').trim();
+  let id = (
+    process.env.CLOUDFLARE_ACCOUNT_ID ||
+    process.env.CLOUDFLARE_ACCOUNT_ID_1 ||
+    process.env.CF_ACCOUNT_ID ||
+    process.env.ACCOUNT_ID ||
+    ''
+  ).trim();
   id = id.replace(/^["']|["']$/g, '').trim();
   id = id.replace(/^https?:\/\//i, '');
   if (id.includes('.r2.cloudflarestorage.com')) {
@@ -36,8 +42,22 @@ function getR2BaseUrl(): string {
 }
 
 function getR2Credentials() {
-  const accessKeyId = (process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '').trim().replace(/^["']|["']$/g, '');
-  const secretAccessKey = (process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '').trim().replace(/^["']|["']$/g, '');
+  const accessKeyId = (
+    process.env.CLOUDFLARE_R2_ACCESS_KEY_ID ||
+    process.env.CLOUDFLARE_R2_ACCESS_KEY_ID_1 ||
+    process.env.R2_ACCESS_KEY_ID ||
+    process.env.AWS_ACCESS_KEY_ID ||
+    ''
+  ).trim().replace(/^["']|["']$/g, '');
+
+  const secretAccessKey = (
+    process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY ||
+    process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY_1 ||
+    process.env.R2_SECRET_ACCESS_KEY ||
+    process.env.AWS_SECRET_ACCESS_KEY ||
+    ''
+  ).trim().replace(/^["']|["']$/g, '');
+
   return { accessKeyId, secretAccessKey };
 }
 
