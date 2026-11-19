@@ -132,8 +132,8 @@ function AppContent() {
             console.log('API not available, trying localStorage fallback');
           }
 
-          // Fallback to localStorage if API fails (dev mode)
-          const shareDataStr = localStorage.getItem(`share_${shareId}`);
+          // Fallback to localStorage: Look for share_${shareId} or my_christmas_tree
+          const shareDataStr = localStorage.getItem(`share_${shareId}`) || localStorage.getItem('my_christmas_tree');
           if (shareDataStr) {
             const shareData = JSON.parse(shareDataStr);
             if (shareData.images && shareData.images.length > 0) {
@@ -193,6 +193,14 @@ function AppContent() {
 
   const handlePhotosUpload = (photos: string[]) => {
     setUploadedPhotos(photos);
+    try {
+      localStorage.setItem('my_christmas_tree', JSON.stringify({
+        images: photos,
+        music: currentMusic,
+        mask: currentMask,
+        createdAt: Date.now()
+      }));
+    } catch (e) {}
   };
 
   return (

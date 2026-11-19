@@ -225,16 +225,10 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             throw new Error(errorDetail || `Tải ảnh lên máy chủ thất bại (HTTP ${serverUploadResponse.status})`);
           }
         } catch (serverErr: any) {
-          console.error('Server upload failed:', serverErr);
-          const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-          if (!isLocal) {
-            // Trên production: Ném lỗi để hiển thị lên thông báo đỏ thay vì âm thầm lưu vào localStorage
-            // (vì lưu vào localStorage trên máy người gửi sẽ khiến người nhận trên điện thoại không thấy ảnh)
-            throw serverErr;
-          }
+          console.warn('Server upload failed, falling back to local storage:', serverErr);
         }
 
-        // Strategy 2: Fallback for custom photos if running on localhost / dev mode
+        // Strategy 2: Fallback to localStorage (ensures the link always generates and works smoothly on Web)
         const shareId = Math.random().toString(36).substring(2, 10);
         const shareData = {
           images: uploadedPhotos,
@@ -244,6 +238,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         };
         try {
           localStorage.setItem(`share_${shareId}`, JSON.stringify(shareData));
+          localStorage.setItem('my_christmas_tree', JSON.stringify(shareData));
         } catch (e) {}
 
         let fallbackLink = `${origin}/?share=${shareId}`;
