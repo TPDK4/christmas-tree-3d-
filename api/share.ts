@@ -1,7 +1,7 @@
 import { AwsClient } from 'aws4fetch';
 
 function getCleanAccountId(): string {
-  let id = (process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  let id = (process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || process.env.ACCOUNT_ID || '').trim();
   id = id.replace(/^["']|["']$/g, '').trim();
   id = id.replace(/^https?:\/\//i, '');
   if (id.includes('.r2.cloudflarestorage.com')) {
@@ -16,7 +16,7 @@ function getCleanAccountId(): string {
   return id;
 }
 
-const BUCKET_NAME = (process.env.CLOUDFLARE_R2_BUCKET || 'christmas-tree-photos')
+const BUCKET_NAME = (process.env.CLOUDFLARE_R2_BUCKET || process.env.R2_BUCKET || 'christmas-tree-photos')
   .trim().replace(/^["']|["']$/g, '').replace(/^\/+|\/+$/g, '');
 
 function getR2BaseUrl(): string {
@@ -35,15 +35,17 @@ function getR2BaseUrl(): string {
   return `https://${accountId}.r2.cloudflarestorage.com`;
 }
 
-function getR2Client(): AwsClient {
-  const accessKeyId = (process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '').trim().replace(/^["']|["']$/g, '');
-  const secretAccessKey = (process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '').trim().replace(/^["']|["']$/g, '');
-  if (!accessKeyId || !secretAccessKey) throw new Error('Chưa thiết lập CLOUDFLARE_R2_ACCESS_KEY_ID hoặc CLOUDFLARE_R2_SECRET_ACCESS_KEY trên Vercel.');
-  return new AwsClient({ accessKeyId, secretAccessKey, region: 'auto', service: 's3' });
+function getR2Credentials() {
+  const accessKeyId = (process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '').trim().replace(/^["']|["']$/g, '');
+  const secretAccessKey = (process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '').trim().replace(/^["']|["']$/g, '');
+  return { accessKeyId, secretAccessKey };
 }
 
-const KV_NAMESPACE_ID = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
-const KV_API_TOKEN = (process.env.CLOUDFLARE_KV_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+function getKVConfig() {
+  const namespaceId = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || process.env.KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
+  const apiToken = (process.env.CLOUDFLARE_KV_API_TOKEN || process.env.KV_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+  return { namespaceId, apiToken };
+}
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -59,26 +61,41 @@ export default async function handler(req: any, res: any) {
     if (!id || typeof id !== 'string') return res.status(400).json({ error: 'Share ID is required' });
 
     const cleanAccountId = getCleanAccountId();
+    const { accessKeyId, secretAccessKey } = getR2Credentials();
+    const { namespaceId: KV_NAMESPACE_ID, apiToken: KV_API_TOKEN } = getKVConfig();
 
-    // 1. Primary: Fetch meta.json from R2
-    try {
-      const r2 = getR2Client();
-      const baseUrl = getR2BaseUrl();
-      const metaUrl = `${baseUrl}/${BUCKET_NAME}/${id}/meta.json`;
-      const r2Resp = await r2.fetch(metaUrl, { method: 'GET' });
+    // Diagnostic endpoint to check configured cloud storage
+    if (id === 'status' || id === '__health') {
+      return res.status(200).json({
+        status: 'ok',
+        hasAccountId: Boolean(cleanAccountId),
+        hasR2: Boolean(accessKeyId && secretAccessKey && cleanAccountId),
+        hasKV: Boolean(KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId),
+        bucket: BUCKET_NAME,
+      });
+    }
 
-      if (r2Resp.ok) {
-        const shareData = await r2Resp.json();
-        return res.status(200).json({
-          success: true,
-          images: shareData.images || [],
-          music: shareData.music || null,
-          mask: shareData.mask || 'none',
-          createdAt: shareData.createdAt || Date.now(),
-        });
+    // 1. Primary: Fetch meta.json from R2 if R2 is configured
+    if (accessKeyId && secretAccessKey && cleanAccountId) {
+      try {
+        const r2 = new AwsClient({ accessKeyId, secretAccessKey, region: 'auto', service: 's3' });
+        const baseUrl = getR2BaseUrl();
+        const metaUrl = `${baseUrl}/${BUCKET_NAME}/${id}/meta.json`;
+        const r2Resp = await r2.fetch(metaUrl, { method: 'GET' });
+
+        if (r2Resp.ok) {
+          const shareData = await r2Resp.json();
+          return res.status(200).json({
+            success: true,
+            images: shareData.images || [],
+            music: shareData.music || null,
+            mask: shareData.mask || 'none',
+            createdAt: shareData.createdAt || Date.now(),
+          });
+        }
+      } catch (r2Err: any) {
+        console.warn(`R2 meta lookup failed for ${id}:`, r2Err?.message);
       }
-    } catch (r2Err: any) {
-      console.warn(`R2 meta lookup failed for ${id}:`, r2Err?.message);
     }
 
     // 2. Fallback: Cloudflare KV

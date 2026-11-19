@@ -1,7 +1,7 @@
 import { AwsClient } from 'aws4fetch';
 
 function getCleanAccountId(): string {
-  let id = (process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  let id = (process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || process.env.ACCOUNT_ID || '').trim();
   id = id.replace(/^["']|["']$/g, '').trim();
   id = id.replace(/^https?:\/\//i, '');
   if (id.includes('.r2.cloudflarestorage.com')) {
@@ -16,7 +16,7 @@ function getCleanAccountId(): string {
   return id;
 }
 
-const BUCKET_NAME = (process.env.CLOUDFLARE_R2_BUCKET || 'christmas-tree-photos')
+const BUCKET_NAME = (process.env.CLOUDFLARE_R2_BUCKET || process.env.R2_BUCKET || 'christmas-tree-photos')
   .trim().replace(/^["']|["']$/g, '').replace(/^\/+|\/+$/g, '');
 
 function getR2BaseUrl(): string {
@@ -35,15 +35,18 @@ function getR2BaseUrl(): string {
   return `https://${accountId}.r2.cloudflarestorage.com`;
 }
 
-function getR2Client(): AwsClient {
-  const accessKeyId = (process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '').trim().replace(/^["']|["']$/g, '');
-  const secretAccessKey = (process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '').trim().replace(/^["']|["']$/g, '');
-  if (!accessKeyId || !secretAccessKey) throw new Error('Chưa thiết lập CLOUDFLARE_R2_ACCESS_KEY_ID hoặc CLOUDFLARE_R2_SECRET_ACCESS_KEY trên Vercel.');
-  return new AwsClient({ accessKeyId, secretAccessKey, region: 'auto', service: 's3' });
+function getR2Credentials() {
+  const accessKeyId = (process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '').trim().replace(/^["']|["']$/g, '');
+  const secretAccessKey = (process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '').trim().replace(/^["']|["']$/g, '');
+  return { accessKeyId, secretAccessKey };
 }
 
-const KV_NAMESPACE_ID = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
-const KV_API_TOKEN = (process.env.CLOUDFLARE_KV_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+function getKVConfig() {
+  const namespaceId = (process.env.CLOUDFLARE_KV_NAMESPACE_ID || process.env.KV_NAMESPACE_ID || '').trim().replace(/^["']|["']$/g, '');
+  const apiToken = (process.env.CLOUDFLARE_KV_API_TOKEN || process.env.KV_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || '').trim().replace(/^["']|["']$/g, '');
+  return { namespaceId, apiToken };
+}
+
 const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || '').trim().replace(/^["']|["']$/g, '');
 
 function generateShareId(): string {
@@ -55,12 +58,12 @@ function parseBase64Image(base64Data: string): Buffer {
   return Buffer.from(base64, 'base64');
 }
 
-async function storeInKV(shareId: string, payload: object, cleanAccountId: string): Promise<void> {
+async function storeInKV(shareId: string, payload: object, cleanAccountId: string, namespaceId: string, apiToken: string): Promise<void> {
   const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${cleanAccountId}/storage/kv/namespaces/${KV_NAMESPACE_ID}/values/${shareId}?expiration_ttl=2592000`,
+    `https://api.cloudflare.com/client/v4/accounts/${cleanAccountId}/storage/kv/namespaces/${namespaceId}/values/${shareId}?expiration_ttl=2592000`,
     {
       method: 'PUT',
-      headers: { 'Authorization': `Bearer ${KV_API_TOKEN}`, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }
   );
@@ -98,74 +101,103 @@ export default async function handler(req: any, res: any) {
     if (publicBase && !publicBase.startsWith('http')) publicBase = `https://${publicBase}`;
 
     const cleanAccountId = getCleanAccountId();
+    const { accessKeyId, secretAccessKey } = getR2Credentials();
+    const { namespaceId: KV_NAMESPACE_ID, apiToken: KV_API_TOKEN } = getKVConfig();
 
-    // Attempt 1: Upload to Cloudflare R2
-    try {
-      const r2 = getR2Client();
-      const baseUrl = getR2BaseUrl();
+    const hasR2 = Boolean(accessKeyId && secretAccessKey && cleanAccountId);
+    const hasKV = Boolean(KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId);
 
-      const imageUrls: string[] = await Promise.all(
-        images.map(async (imageData: string, i: number) => {
-          const bytes = parseBase64Image(imageData);
-          const filename = `${shareId}/${i}.jpg`;
-          const url = `${baseUrl}/${BUCKET_NAME}/${filename}`;
+    if (!hasR2 && !hasKV) {
+      if (!cleanAccountId) {
+        throw new Error('Chưa thiết lập CLOUDFLARE_ACCOUNT_ID trên Vercel.');
+      }
+      throw new Error('Chưa thiết lập R2 credentials (CLOUDFLARE_R2_ACCESS_KEY_ID) hoặc KV credentials trên Vercel.');
+    }
 
-          const uploadResp = await r2.fetch(url, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'image/jpeg' },
-            body: bytes,
-          });
+    let uploadSuccess = false;
 
-          if (!uploadResp.ok) {
-            const errText = await uploadResp.text().catch(() => '');
-            throw new Error(`R2 upload failed for image ${i}: HTTP ${uploadResp.status} ${errText.slice(0, 150)}`);
+    // Strategy 1: Upload to Cloudflare R2 if configured
+    if (hasR2) {
+      try {
+        const r2 = new AwsClient({ accessKeyId, secretAccessKey, region: 'auto', service: 's3' });
+        const baseUrl = getR2BaseUrl();
+
+        const imageUrls: string[] = await Promise.all(
+          images.map(async (imageData: string, i: number) => {
+            const bytes = parseBase64Image(imageData);
+            const filename = `${shareId}/${i}.jpg`;
+            const url = `${baseUrl}/${BUCKET_NAME}/${filename}`;
+
+            const uploadResp = await r2.fetch(url, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'image/jpeg' },
+              body: bytes,
+            });
+
+            if (!uploadResp.ok) {
+              const errText = await uploadResp.text().catch(() => '');
+              throw new Error(`R2 upload failed for image ${i}: HTTP ${uploadResp.status} ${errText.slice(0, 150)}`);
+            }
+
+            return publicBase
+              ? `${publicBase}/${filename}`
+              : `/api/photo?key=${encodeURIComponent(filename)}`;
+          })
+        );
+
+        // Store meta.json in R2
+        const shareMetadata = { images: imageUrls, music: music || null, mask: mask || 'none', createdAt: Date.now() };
+        const metaUrl = `${baseUrl}/${BUCKET_NAME}/${shareId}/meta.json`;
+        const metaResp = await r2.fetch(metaUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(shareMetadata),
+        });
+
+        if (!metaResp.ok) {
+          const errText = await metaResp.text().catch(() => '');
+          throw new Error(`Failed to save meta.json to R2: HTTP ${metaResp.status} ${errText.slice(0, 150)}`);
+        }
+
+        uploadSuccess = true;
+
+        // Optional KV backup
+        if (hasKV) {
+          try { await storeInKV(shareId, shareMetadata, cleanAccountId, KV_NAMESPACE_ID, KV_API_TOKEN); } catch (kvErr) { console.warn('KV backup failed:', kvErr); }
+        }
+      } catch (r2Error: any) {
+        console.warn('R2 upload attempt failed:', r2Error?.message || r2Error);
+
+        // Fallback to Cloudflare KV if available
+        if (hasKV) {
+          try {
+            console.info('Attempting fallback to Cloudflare KV...');
+            const kvMetadata = {
+              images: images,
+              music: music || null,
+              mask: mask || 'none',
+              createdAt: Date.now(),
+            };
+            await storeInKV(shareId, kvMetadata, cleanAccountId, KV_NAMESPACE_ID, KV_API_TOKEN);
+            uploadSuccess = true;
+          } catch (kvErr: any) {
+            console.error('KV fallback also failed:', kvErr);
+            throw r2Error;
           }
-
-          return publicBase
-            ? `${publicBase}/${filename}`
-            : `/api/photo?key=${encodeURIComponent(filename)}`;
-        })
-      );
-
-      // Store meta.json in R2
-      const shareMetadata = { images: imageUrls, music: music || null, mask: mask || 'none', createdAt: Date.now() };
-      const metaUrl = `${baseUrl}/${BUCKET_NAME}/${shareId}/meta.json`;
-      const metaResp = await r2.fetch(metaUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(shareMetadata),
-      });
-
-      if (!metaResp.ok) {
-        const errText = await metaResp.text().catch(() => '');
-        throw new Error(`Failed to save meta.json to R2: HTTP ${metaResp.status} ${errText.slice(0, 150)}`);
-      }
-
-      // Optional KV backup
-      if (KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId) {
-        try { await storeInKV(shareId, shareMetadata, cleanAccountId); } catch (kvErr) { console.warn('KV backup failed:', kvErr); }
-      }
-    } catch (r2Error: any) {
-      console.warn('R2 upload attempt failed:', r2Error?.message || r2Error);
-
-      // Attempt 2: Fallback to Cloudflare KV if configured (stores base64 images directly)
-      if (KV_NAMESPACE_ID && KV_API_TOKEN && cleanAccountId) {
-        try {
-          console.info('Attempting fallback to Cloudflare KV...');
-          const kvMetadata = {
-            images: images,
-            music: music || null,
-            mask: mask || 'none',
-            createdAt: Date.now(),
-          };
-          await storeInKV(shareId, kvMetadata, cleanAccountId);
-        } catch (kvErr: any) {
-          console.error('KV fallback also failed:', kvErr);
+        } else {
           throw r2Error;
         }
-      } else {
-        throw r2Error;
       }
+    } else if (hasKV) {
+      // Strategy 2: Direct Cloudflare KV storage (when R2 is not configured)
+      const kvMetadata = {
+        images: images,
+        music: music || null,
+        mask: mask || 'none',
+        createdAt: Date.now(),
+      };
+      await storeInKV(shareId, kvMetadata, cleanAccountId, KV_NAMESPACE_ID, KV_API_TOKEN);
+      uploadSuccess = true;
     }
 
     let shareLink = `${origin}/?share=${shareId}`;
