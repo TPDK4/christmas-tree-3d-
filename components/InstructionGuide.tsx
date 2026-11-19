@@ -97,7 +97,7 @@ export const InstructionGuide: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Section 1: Single-hand Pinch Tree Gestures */}
+                {/* Section 1: Single-hand Tree Gestures */}
                 <div className="mb-3 p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/25">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-sm">🌲</span>
@@ -113,10 +113,6 @@ export const InstructionGuide: React.FC = () => {
                     <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 border border-white/10 h-9">
                       <span className="text-gray-300 font-medium">🖐 {t('treePinchOpen')}:</span>
                       <span className="font-semibold text-amber-300">{t('unleashTree')}</span>
-                    </div>
-                    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 border border-white/10 h-9">
-                      <span className="text-gray-300 font-medium">✋ {t('moveTree')}:</span>
-                      <span className="font-semibold text-[#F5E6BF]">{t('statusRotate')}</span>
                     </div>
                   </div>
                 </div>
@@ -141,7 +137,7 @@ export const InstructionGuide: React.FC = () => {
                       <span className="font-semibold text-[#38BDF8]">{t('photoFinger1')}</span>
                     </div>
                     <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 h-8 whitespace-nowrap">
-                      <span>✌️ 2:</span>
+                      <span>✌️ 2 (Chữ V):</span>
                       <span className="font-semibold text-[#38BDF8]">{t('photoFinger2')}</span>
                     </div>
                     <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 h-8 whitespace-nowrap">
@@ -153,7 +149,7 @@ export const InstructionGuide: React.FC = () => {
                       <span className="font-semibold text-[#38BDF8]">{t('photoFinger4')}</span>
                     </div>
                     <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 h-8 whitespace-nowrap">
-                      <span>🖐 5:</span>
+                      <span>🖐 5 (Xòe cả bàn):</span>
                       <span className="font-semibold text-[#38BDF8]">{t('photoFinger5')}</span>
                     </div>
                     <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 h-8 whitespace-nowrap">
@@ -190,37 +186,33 @@ export const InstructionGuide: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Desktop Section 1: Right Hand Tree Gestures */}
+                {/* Desktop Section 1: Tree Gestures */}
                 <div className="mb-3 p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/25">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-sm">🌲</span>
                     <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                      {t('handRightDesktop')}
+                      Điều khiển Cây Thông (Tay bất kỳ)
                     </span>
                   </div>
                   <div className="space-y-1.5 text-xs text-gray-200">
                     <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
-                      <span className="text-gray-300 font-medium">✊ Nắm bàn tay (hoặc chụm ngón cái-trỏ):</span>
+                      <span className="text-gray-300 font-medium">🤏 Chụm ngón cái & trỏ:</span>
                       <span className="font-semibold text-emerald-400">{t('formTree')}</span>
                     </div>
                     <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
-                      <span className="text-gray-300 font-medium">🖐 Xòe bàn tay (hoặc tách ngón cái-trỏ):</span>
+                      <span className="text-gray-300 font-medium">🖐 Tách ngón cái & trỏ:</span>
                       <span className="font-semibold text-amber-300">{t('unleashTree')}</span>
-                    </div>
-                    <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
-                      <span className="text-gray-300 font-medium">✋ Di chuyển bàn tay:</span>
-                      <span className="font-semibold text-[#F5E6BF]">{t('statusRotate')}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Desktop Section 2: Left Hand Photo Gestures */}
+                {/* Desktop Section 2: Photo Selection Gestures */}
                 <div className="mb-3 p-3 rounded-xl bg-sky-950/30 border border-sky-500/25">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm">📸</span>
                       <span className="text-xs font-bold text-sky-300 uppercase tracking-wider">
-                        {t('handLeftDesktop')}
+                        Mở Ảnh Kỷ Niệm (1 – 5 ngón)
                       </span>
                     </div>
                   </div>
@@ -231,7 +223,7 @@ export const InstructionGuide: React.FC = () => {
                       <span className="font-semibold text-[#38BDF8]">{t('photoFinger1')}</span>
                     </div>
                     <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 h-8 whitespace-nowrap">
-                      <span>✌️ 2:</span>
+                      <span>✌️ 2 (Chữ V):</span>
                       <span className="font-semibold text-[#38BDF8]">{t('photoFinger2')}</span>
                     </div>
                     <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 h-8 whitespace-nowrap">
@@ -243,7 +235,7 @@ export const InstructionGuide: React.FC = () => {
                       <span className="font-semibold text-[#38BDF8]">{t('photoFinger4')}</span>
                     </div>
                     <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 h-8 whitespace-nowrap">
-                      <span>🖐 5:</span>
+                      <span>🖐 5 (Xòe cả bàn):</span>
                       <span className="font-semibold text-[#38BDF8]">{t('photoFinger5')}</span>
                     </div>
                     <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 h-8 whitespace-nowrap">

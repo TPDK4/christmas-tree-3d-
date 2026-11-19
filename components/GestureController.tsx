@@ -95,38 +95,85 @@ export function countExtendedFingers(landmarks: any[]): FingerDetectionResult {
   };
 }
 
+export interface AnalyzedGesture {
+  isPinchClose: boolean;
+  isPinchOpen: boolean;
+  photoSelect: number | null;
+}
+
 /**
- * Accurately determines whether a hand is physically Right or Left in 3D.
+ * Classifies the user's hand gesture with absolute mathematical clarity.
+ * Completely eliminates conflicts:
+ * - Spreading thumb + index is strictly recognized as Pinch Open (Tree Chaos), NEVER Photo 2.
+ * - Photo 2 strictly requires Peace sign ✌️ (index + middle open, thumb folded).
+ * - Photo 5 (all 5 fingers open) strictly opens photo 5, and NEVER triggers Tree Chaos.
  */
-export function determineHandedness(landmarks: any[], mpCategory?: string): 'Right' | 'Left' {
-  if (mpCategory === 'Right') return 'Right';
-  if (mpCategory === 'Left') return 'Left';
-
-  if (landmarks && landmarks.length >= 21) {
-    const wrist = landmarks[0];
-    const middle = landmarks[9];
-    const index = landmarks[5];
-    const pinky = landmarks[17];
-    const thumb = landmarks[2];
-
-    const u = [middle.x - wrist.x, middle.y - wrist.y, (middle.z || 0) - (wrist.z || 0)];
-    const v = [pinky.x - index.x, pinky.y - index.y, (pinky.z || 0) - (index.z || 0)];
-    const t = [thumb.x - wrist.x, thumb.y - wrist.y, (thumb.z || 0) - (wrist.z || 0)];
-
-    const cx = u[1] * v[2] - u[2] * v[1];
-    const cy = u[2] * v[0] - u[0] * v[2];
-    const cz = u[0] * v[1] - u[1] * v[0];
-
-    const det = cx * t[0] + cy * t[1] + cz * t[2];
-    return det > 0 ? 'Right' : 'Left';
+export function analyzeHandLandmarks(landmarks: any[]): AnalyzedGesture {
+  if (!landmarks || landmarks.length < 21) {
+    return { isPinchClose: false, isPinchOpen: false, photoSelect: null };
   }
-  return 'Right';
+
+  const detection = countExtendedFingers(landmarks);
+  const { fingers, count } = detection;
+
+  const wrist = landmarks[0];
+  const middleMcp = landmarks[9];
+  const handScale = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) || 0.2;
+
+  const thumbTip = landmarks[4];
+  const indexTip = landmarks[8];
+  const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+  const pinchRatio = pinchDist / handScale;
+
+  // 1. PINCH CLOSE (Co ngón cái & trỏ lại với nhau -> Thu cây thông)
+  const isPinchClose = pinchRatio < 0.35;
+
+  // 2. PINCH OPEN (Tách ngón cái & trỏ ra để bung tán cây thông)
+  // Thumb and Index must be open, pinchRatio wide, and NOT all 5 fingers open
+  const isPinchOpen =
+    pinchRatio > 0.82 &&
+    fingers.thumb &&
+    fingers.index &&
+    (!fingers.pinky || !fingers.ring);
+
+  // 3. PHOTO SELECTION (1 - 5, or 0 for close)
+  let photoSelect: number | null = null;
+
+  // Photo 5: All 5 fingers extended
+  if (count === 5 || (fingers.thumb && fingers.index && fingers.middle && fingers.ring && fingers.pinky)) {
+    photoSelect = 5;
+  }
+  // Photo 4: 4 fingers (Index, Middle, Ring, Pinky), Thumb folded
+  else if (fingers.index && fingers.middle && fingers.ring && fingers.pinky && !fingers.thumb) {
+    photoSelect = 4;
+  }
+  // Photo 3: 3 fingers (Index, Middle, Ring), Pinky folded
+  else if (fingers.index && fingers.middle && fingers.ring && !fingers.pinky) {
+    photoSelect = 3;
+  }
+  // Photo 2: Peace sign ✌️ (Index + Middle extended, Thumb folded, Ring & Pinky folded)
+  else if (fingers.index && fingers.middle && !fingers.thumb && !fingers.ring && !fingers.pinky) {
+    photoSelect = 2;
+  }
+  // Photo 1: Index finger extended ONLY (Thumb, Middle, Ring, Pinky folded)
+  else if (fingers.index && !fingers.middle && !fingers.ring && !fingers.pinky && !fingers.thumb) {
+    photoSelect = 1;
+  }
+  // Clenched fist (all fingers folded) -> close photo
+  else if (count === 0 || (!fingers.index && !fingers.middle && !fingers.ring && !fingers.pinky)) {
+    photoSelect = 0;
+  }
+
+  return {
+    isPinchClose,
+    isPinchOpen,
+    photoSelect,
+  };
 }
 
 export const GestureController: React.FC<GestureControllerProps> = ({
   onModeChange,
   currentMode,
-  onHandPosition,
   onTwoHandsDetected,
   onPhotoFingerSelect,
   selectedPhotoIndex,
@@ -148,7 +195,6 @@ export const GestureController: React.FC<GestureControllerProps> = ({
 
   // Dynamic prop callback refs to avoid stale closures in requestAnimationFrame loop
   const onModeChangeRef = useRef(onModeChange);
-  const onHandPositionRef = useRef(onHandPosition);
   const onTwoHandsDetectedRef = useRef(onTwoHandsDetected);
   const onPhotoFingerSelectRef = useRef(onPhotoFingerSelect);
   const lastModeRef = useRef<TreeMode>(currentMode);
@@ -156,7 +202,6 @@ export const GestureController: React.FC<GestureControllerProps> = ({
 
   useEffect(() => {
     onModeChangeRef.current = onModeChange;
-    onHandPositionRef.current = onHandPosition;
     onTwoHandsDetectedRef.current = onTwoHandsDetected;
     onPhotoFingerSelectRef.current = onPhotoFingerSelect;
     isMobileRef.current = isMobile;
@@ -242,8 +287,6 @@ export const GestureController: React.FC<GestureControllerProps> = ({
   // Debounce refs
   const pinchCloseFramesRef = useRef(0);
   const pinchOpenFramesRef = useRef(0);
-  const openFramesRef = useRef(0);
-  const closedFramesRef = useRef(0);
   const CONFIRM_THRESHOLD = 3;
 
   const candidateFingersRef = useRef<number | null>(null);
@@ -390,205 +433,72 @@ export const GestureController: React.FC<GestureControllerProps> = ({
             onTwoHandsDetectedRef.current(numHands >= 2);
           }
 
-          // MOBILE SPECIFIC GESTURE LOGIC: Single-Hand Unified Pinch + Extended Fingers
-          if (isMobileRef.current) {
-            const primaryLm = result.landmarks[0];
-
-            // 1. Palm center for 3D pan
-            const palmX =
-              (primaryLm[0].x + primaryLm[5].x + primaryLm[9].x + primaryLm[13].x + primaryLm[17].x) / 5;
-            const palmY =
-              (primaryLm[0].y + primaryLm[5].y + primaryLm[9].y + primaryLm[13].y + primaryLm[17].y) / 5;
-            if (onHandPositionRef.current) {
-              onHandPositionRef.current(palmX, palmY, true);
-            }
-
-            // 2. Pinch calculation (Thumb tip 4 to Index tip 8)
-            const wrist = primaryLm[0];
-            const middleMcp = primaryLm[9];
-            const handScale = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) || 0.2;
-
-            const thumbTip = primaryLm[4];
-            const indexTip = primaryLm[8];
-            const pinchRatio = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y) / handScale;
-
-            const detection = countExtendedFingers(primaryLm);
-
-            // Pinch Close: Form tree
-            if (pinchRatio < 0.35) {
-              pinchCloseFramesRef.current++;
-              pinchOpenFramesRef.current = 0;
-              if (pinchCloseFramesRef.current >= CONFIRM_THRESHOLD) {
-                if (lastModeRef.current !== TreeMode.FORMED) {
-                  lastModeRef.current = TreeMode.FORMED;
-                  onModeChangeRef.current(TreeMode.FORMED);
-                }
-              }
-            }
-            // Pinch Open: Unleash tree
-            else if (pinchRatio > 0.85 && (detection.fingers.thumb || detection.fingers.index)) {
-              pinchOpenFramesRef.current++;
-              pinchCloseFramesRef.current = 0;
-              if (pinchOpenFramesRef.current >= CONFIRM_THRESHOLD) {
-                if (lastModeRef.current !== TreeMode.CHAOS) {
-                  lastModeRef.current = TreeMode.CHAOS;
-                  onModeChangeRef.current(TreeMode.CHAOS);
-                }
-              }
-            } else {
-              pinchCloseFramesRef.current = 0;
-              pinchOpenFramesRef.current = 0;
-            }
-
-            // Finger count 1-5 for photos, 0 / fist closes
-            const count = detection.count;
-            if (candidateFingersRef.current === count) {
-              candidateFramesRef.current++;
-            } else {
-              candidateFingersRef.current = count;
-              candidateFramesRef.current = 1;
-            }
-
-            if (candidateFramesRef.current >= PHOTO_CONFIRM_THRESHOLD) {
-              if (count >= 1 && count <= 5) {
-                if (lastConfirmedPhotoRef.current !== count) {
-                  lastConfirmedPhotoRef.current = count;
-                  if (onPhotoFingerSelectRef.current) {
-                    onPhotoFingerSelectRef.current(count);
-                  }
-                }
-              } else if (count === 0) {
-                if (lastConfirmedPhotoRef.current !== null) {
-                  lastConfirmedPhotoRef.current = null;
-                  if (onPhotoFingerSelectRef.current) {
-                    onPhotoFingerSelectRef.current(null);
-                  }
-                }
-              }
+          // Draw skeleton on desktop camera box
+          if (!isMobileRef.current && canvasRef.current && videoRef.current) {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              canvas.width = videoRef.current.videoWidth;
+              canvas.height = videoRef.current.videoHeight;
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              result.landmarks.forEach((lms, idx) => {
+                const lineColor = idx === 0 ? '#D4AF37' : '#38BDF8';
+                const pointColor = idx === 0 ? '#10B981' : '#F43F5E';
+                drawSingleHandSkeleton(lms, ctx, canvas, lineColor, pointColor);
+              });
             }
           }
-          // DESKTOP WEB SPECIFIC GESTURE LOGIC: Rich Dual-Hand & Single-Hand Support
-          else {
-            const hands = result.landmarks.map((lm, idx) => {
-              const palmX = (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5;
-              const palmY = (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5;
-              const screenX = 1 - palmX;
-              const detection = countExtendedFingers(lm);
-              const mpCategory = result.handednesses?.[idx]?.[0]?.categoryName;
-              const handedness = determineHandedness(lm, mpCategory);
 
-              const wrist = lm[0];
-              const middleMcp = lm[9];
-              const handScale = Math.hypot(middleMcp.x - wrist.x, middleMcp.y - wrist.y) || 0.2;
-              const pinchRatio = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y) / handScale;
+          // Perform unified, conflict-free gesture analysis on primary hand
+          const primaryLm = result.landmarks[0];
+          const { isPinchClose, isPinchOpen, photoSelect } = analyzeHandLandmarks(primaryLm);
 
-              return {
-                landmarks: lm,
-                palmX,
-                palmY,
-                screenX,
-                fingerCount: detection.count,
-                detection,
-                handedness,
-                isRightHand: handedness === 'Right',
-                isLeftHand: handedness === 'Left',
-                pinchRatio,
-              };
-            });
-
-            let treeHand: typeof hands[0] | null = null;
-            let photoHand: typeof hands[0] | null = null;
-
-            if (hands.length >= 2) {
-              const rightHand = hands.find((h) => h.isRightHand);
-              const leftHand = hands.find((h) => h.isLeftHand);
-              if (rightHand && leftHand) {
-                treeHand = rightHand;
-                photoHand = leftHand;
-              } else {
-                const sorted = [...hands].sort((a, b) => b.screenX - a.screenX);
-                treeHand = sorted[0];
-                photoHand = sorted[1];
-              }
-            } else {
-              // Single hand on desktop: versatile (can do both pinch/fist and photo numbers)
-              const single = hands[0];
-              treeHand = single;
-              photoHand = single;
-            }
-
-            // Draw skeletons on canvas
-            if (canvasRef.current && videoRef.current) {
-              const canvas = canvasRef.current;
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                canvas.width = videoRef.current.videoWidth;
-                canvas.height = videoRef.current.videoHeight;
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                hands.forEach((h) => {
-                  const isPhoto = photoHand && h.landmarks === photoHand.landmarks && hands.length >= 2;
-                  const lineColor = isPhoto ? '#38BDF8' : '#D4AF37';
-                  const pointColor = isPhoto ? '#F43F5E' : '#10B981';
-                  drawSingleHandSkeleton(h.landmarks, ctx, canvas, lineColor, pointColor);
-                });
+          // 1. Process Tree Mode Latching (Pinch Close / Pinch Open)
+          if (isPinchClose) {
+            pinchCloseFramesRef.current++;
+            pinchOpenFramesRef.current = 0;
+            if (pinchCloseFramesRef.current >= CONFIRM_THRESHOLD) {
+              if (lastModeRef.current !== TreeMode.FORMED) {
+                lastModeRef.current = TreeMode.FORMED;
+                onModeChangeRef.current(TreeMode.FORMED);
               }
             }
-
-            // 1. Desktop Tree Control
-            if (treeHand) {
-              if (onHandPositionRef.current) {
-                onHandPositionRef.current(treeHand.palmX, treeHand.palmY, true);
+          } else if (isPinchOpen) {
+            pinchOpenFramesRef.current++;
+            pinchCloseFramesRef.current = 0;
+            if (pinchOpenFramesRef.current >= CONFIRM_THRESHOLD) {
+              if (lastModeRef.current !== TreeMode.CHAOS) {
+                lastModeRef.current = TreeMode.CHAOS;
+                onModeChangeRef.current(TreeMode.CHAOS);
               }
+            }
+          } else {
+            pinchCloseFramesRef.current = 0;
+            pinchOpenFramesRef.current = 0;
+          }
 
-              // Open palm or pinch open -> CHAOS
-              if (treeHand.fingerCount >= 4 || treeHand.pinchRatio > 0.85) {
-                openFramesRef.current++;
-                closedFramesRef.current = 0;
-                if (openFramesRef.current >= CONFIRM_THRESHOLD) {
-                  if (lastModeRef.current !== TreeMode.CHAOS) {
-                    lastModeRef.current = TreeMode.CHAOS;
-                    onModeChangeRef.current(TreeMode.CHAOS);
-                  }
+          // 2. Process Photo Selection (1..5 or 0 for close)
+          if (candidateFingersRef.current === photoSelect) {
+            candidateFramesRef.current++;
+          } else {
+            candidateFingersRef.current = photoSelect;
+            candidateFramesRef.current = 1;
+          }
+
+          if (candidateFramesRef.current >= PHOTO_CONFIRM_THRESHOLD) {
+            if (photoSelect !== null && photoSelect >= 1 && photoSelect <= 5) {
+              if (lastConfirmedPhotoRef.current !== photoSelect) {
+                lastConfirmedPhotoRef.current = photoSelect;
+                if (onPhotoFingerSelectRef.current) {
+                  onPhotoFingerSelectRef.current(photoSelect);
                 }
               }
-              // Closed fist or pinch close -> FORMED
-              else if (treeHand.fingerCount <= 1 || treeHand.pinchRatio < 0.35) {
-                closedFramesRef.current++;
-                openFramesRef.current = 0;
-                if (closedFramesRef.current >= CONFIRM_THRESHOLD) {
-                  if (lastModeRef.current !== TreeMode.FORMED) {
-                    lastModeRef.current = TreeMode.FORMED;
-                    onModeChangeRef.current(TreeMode.FORMED);
-                  }
-                }
-              }
-            }
-
-            // 2. Desktop Photo Control
-            if (photoHand) {
-              const count = photoHand.fingerCount;
-              if (candidateFingersRef.current === count) {
-                candidateFramesRef.current++;
-              } else {
-                candidateFingersRef.current = count;
-                candidateFramesRef.current = 1;
-              }
-
-              if (candidateFramesRef.current >= PHOTO_CONFIRM_THRESHOLD) {
-                if (count >= 1 && count <= 5) {
-                  if (lastConfirmedPhotoRef.current !== count) {
-                    lastConfirmedPhotoRef.current = count;
-                    if (onPhotoFingerSelectRef.current) {
-                      onPhotoFingerSelectRef.current(count);
-                    }
-                  }
-                } else if (count === 0 && hands.length >= 2) {
-                  if (lastConfirmedPhotoRef.current !== null) {
-                    lastConfirmedPhotoRef.current = null;
-                    if (onPhotoFingerSelectRef.current) {
-                      onPhotoFingerSelectRef.current(null);
-                    }
-                  }
+            } else if (photoSelect === 0) {
+              // Fist closes active photo
+              if (lastConfirmedPhotoRef.current !== null) {
+                lastConfirmedPhotoRef.current = null;
+                if (onPhotoFingerSelectRef.current) {
+                  onPhotoFingerSelectRef.current(null);
                 }
               }
             }
@@ -598,15 +508,10 @@ export const GestureController: React.FC<GestureControllerProps> = ({
           noHandFramesRef.current++;
           pinchCloseFramesRef.current = 0;
           pinchOpenFramesRef.current = 0;
-          openFramesRef.current = 0;
-          closedFramesRef.current = 0;
           candidateFingersRef.current = null;
           candidateFramesRef.current = 0;
 
           if (noHandFramesRef.current > 8) {
-            if (onHandPositionRef.current) {
-              onHandPositionRef.current(0.5, 0.5, false);
-            }
             if (onTwoHandsDetectedRef.current) {
               onTwoHandsDetectedRef.current(false);
             }
@@ -618,7 +523,7 @@ export const GestureController: React.FC<GestureControllerProps> = ({
             }
           }
 
-          if (canvasRef.current) {
+          if (!isMobileRef.current && canvasRef.current) {
             const ctx = canvasRef.current.getContext('2d');
             if (ctx) {
               ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);

@@ -87,50 +87,6 @@ export const Experience: React.FC<ExperienceProps> = ({ mode, handPosition, uplo
       // In Three.js: subtracting Y angle is clockwise when looking down from above
       treeGroupRef.current.rotation.y -= autoRotateSpeed * currentSpeedFactorRef.current * delta;
     }
-
-    // 4. Update camera rotation based on hand position
-    if (controlsRef.current && handPosition.detected && !isPointerInteractingRef.current) {
-      const controls = controlsRef.current;
-      
-      // Target azimuthal angle: mapped to hand X
-      const targetAzimuth = (handPosition.x - 0.5) * Math.PI * 3;
-      
-      // Adjust Y mapping so natural hand position gives best view
-      const adjustedY = (handPosition.y - 0.2) * 2.0;
-      const clampedY = Math.max(0, Math.min(1, adjustedY));
-      
-      // Target polar angle: PI/4 to PI/1.8 (constrained vertical angle)
-      const minPolar = Math.PI / 4;
-      const maxPolar = Math.PI / 1.8;
-      const targetPolar = minPolar + clampedY * (maxPolar - minPolar);
-      
-      // Get current angles
-      const currentAzimuth = controls.getAzimuthalAngle();
-      const currentPolar = controls.getPolarAngle();
-      
-      // Calculate angle differences (handle wrapping for azimuth)
-      let azimuthDiff = targetAzimuth - currentAzimuth;
-      if (azimuthDiff > Math.PI) azimuthDiff -= Math.PI * 2;
-      if (azimuthDiff < -Math.PI) azimuthDiff += Math.PI * 2;
-      
-      // Smoothly interpolate angles
-      const lerpSpeed = 8;
-      const newAzimuth = currentAzimuth + azimuthDiff * delta * lerpSpeed;
-      const newPolar = currentPolar + (targetPolar - currentPolar) * delta * lerpSpeed;
-      
-      // Calculate new camera position in spherical coordinates
-      const radius = controls.getDistance();
-      const targetY = 5.3; // Tree center / focal height
-      
-      const x = radius * Math.sin(newPolar) * Math.sin(newAzimuth);
-      const y = targetY + radius * Math.cos(newPolar);
-      const z = radius * Math.sin(newPolar) * Math.cos(newAzimuth);
-      
-      // Update camera position and target
-      controls.object.position.set(x, y, z);
-      controls.target.set(0, targetY, 0);
-      controls.update();
-    }
   });
 
   return (
